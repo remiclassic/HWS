@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo } from "react";
-import { Alert, FlatList, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { Alert, FlatList, Image, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +35,7 @@ const GarageCardRow = memo(function GarageCardRow({
   onDelete: (row: UserCarDto) => void;
 }) {
   const car = item.car;
+  const thumbUri = item.photos[0]?.url ?? car?.primary_image_url ?? null;
   const st = statusStyle[item.status] ?? statusStyle["Owned"];
   const mainPress = usePressScale(true);
   const editPress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
@@ -57,9 +58,21 @@ const GarageCardRow = memo(function GarageCardRow({
         accessibilityLabel={`Open reference: ${car?.casting_name ?? "Car"}`}
       >
         <View style={styles.cardTop}>
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {car?.casting_name ?? "Car"}
-          </Text>
+          <View style={styles.cardTopLeft}>
+            {thumbUri ? (
+              <Image
+                source={{ uri: thumbUri }}
+                style={styles.cardThumb}
+                resizeMode="cover"
+                accessibilityIgnoresInvertColors
+              />
+            ) : (
+              <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} accessibilityElementsHidden />
+            )}
+            <Text style={styles.cardTitle} numberOfLines={2}>
+              {car?.casting_name ?? "Car"}
+            </Text>
+          </View>
           <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
             <Text style={[styles.statusTxt, { color: st.fg }]}>{item.status}</Text>
           </View>
@@ -257,7 +270,26 @@ const styles = StyleSheet.create({
   },
   cardMain: { flex: 1, padding: theme.spaceLg },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.spaceSm },
-  cardTitle: { flex: 1, fontSize: 18, fontWeight: "800", color: theme.text },
+  cardTopLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: theme.spaceMd,
+  },
+  cardThumb: {
+    width: 64,
+    height: 44,
+    borderRadius: theme.radiusSm,
+    backgroundColor: theme.bgSubtle,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  cardThumbPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardTitle: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: "800", color: theme.text },
   statusPill: {
     paddingHorizontal: 10,
     paddingVertical: 4,

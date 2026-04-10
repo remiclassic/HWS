@@ -31,6 +31,26 @@ async function main() {
   const creations = await ensureSource("Mattel Creations", "official", 1, "https://creations.mattel.com");
   const reddit = await ensureSource("r/HotWheels (community, unverified)", "community", 0.45, "https://reddit.com/r/HotWheels");
 
+  /** Stock photos for demo UI only (not Mattel product shots). Pexels — free use per Pexels license. */
+  const demoImageByCasting: Record<string, { url: string; attribution: string }> = {
+    "Twin Mill": {
+      url: "https://images.pexels.com/photos/3807277/pexels-photo-3807277.jpeg?auto=compress&cs=tinysrgb&w=1200",
+      attribution: "Demo: stock toy-car photo via Pexels — replace with permitted reference art",
+    },
+    "'70 Dodge Charger": {
+      url: "https://images.pexels.com/photos/7689726/pexels-photo-7689726.jpeg?auto=compress&cs=tinysrgb&w=1200",
+      attribution: "Demo: stock diecast-style photo via Pexels — replace with permitted reference art",
+    },
+    "Bone Shaker": {
+      url: "https://images.pexels.com/photos/5712502/pexels-photo-5712502.jpeg?auto=compress&cs=tinysrgb&w=1200",
+      attribution: "Demo: stock miniature-car photo via Pexels — replace with permitted reference art",
+    },
+    "Custom '77 Dodge Van": {
+      url: "https://images.pexels.com/photos/7947756/pexels-photo-7947756.jpeg?auto=compress&cs=tinysrgb&w=1200",
+      attribution: "Demo: stock toy-vehicle photo via Pexels — replace with permitted reference art",
+    },
+  };
+
   const cars: {
     casting: string;
     year: number;
@@ -197,12 +217,16 @@ async function main() {
         : []),
     ]);
 
+    const demoIm = demoImageByCasting[c.casting];
     await db.delete(carImages).where(eq(carImages.carId, carId));
     await db.insert(carImages).values({
       carId,
-      officialImageUrl: `https://via.placeholder.com/400x220?text=${encodeURIComponent(c.casting)}`,
+      officialImageUrl:
+        demoIm?.url ??
+        `https://via.placeholder.com/400x220?text=${encodeURIComponent(c.casting)}`,
       sourceId: c.sourceId,
-      attributionNote: "Placeholder image — replace with permitted official artwork",
+      attributionNote:
+        demoIm?.attribution ?? "Placeholder image — replace with permitted official artwork",
     });
 
     await db.delete(carCommunityNotes).where(eq(carCommunityNotes.carId, carId));

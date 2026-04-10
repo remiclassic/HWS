@@ -59,6 +59,8 @@ export const carListItemSchema = z.object({
   line_type: lineTypeSchema,
   treasure_hunt_type: treasureHuntTypeSchema,
   confidence_score: z.number().min(0).max(1),
+  /** First catalog image URL when present (demo / reference art). */
+  primary_image_url: z.string().url().nullable(),
 });
 export type CarListItemDto = z.infer<typeof carListItemSchema>;
 

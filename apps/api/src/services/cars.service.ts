@@ -95,6 +95,25 @@ function buildWhere(query: CarsQuery) {
   return parts.length ? and(...parts) : undefined;
 }
 
+/** First catalog image per car (stable order) for list / garage thumbnails. */
+export async function primaryImageUrlByCarIds(carIds: string[]): Promise<Map<string, string | null>> {
+  const m = new Map<string, string | null>();
+  for (const id of carIds) m.set(id, null);
+  if (carIds.length === 0) return m;
+  const rows = await db
+    .select({ carId: carImages.carId, url: carImages.officialImageUrl })
+    .from(carImages)
+    .where(inArray(carImages.carId, carIds))
+    .orderBy(asc(carImages.carId), asc(carImages.id));
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.carId)) continue;
+    seen.add(r.carId);
+    m.set(r.carId, r.url);
+  }
+  return m;
+}
+
 export async function listCars(query: CarsQuery) {
   const where = buildWhere(query);
   const totalRows = await db
@@ -112,15 +131,17 @@ export async function listCars(query: CarsQuery) {
     .offset(query.offset);
 
   const ids = rows.map((r) => r.id);
-  const conf = await confidenceByCarIds(ids);
+  const [conf, primaryImgs] = await Promise.all([confidenceByCarIds(ids), primaryImageUrlByCarIds(ids)]);
 
   return {
     total,
-    items: rows.map((r) => toListItem(r, conf.get(r.id) ?? 0.5)),
+    items: rows.map((r) =>
+      toListItem(r, conf.get(r.id) ?? 0.5, primaryImgs.get(r.id) ?? null),
+    ),
   };
 }
 
-export function toListItem(r: CarRow, confidence_score: number) {
+export function toListItem(r: CarRow, confidence_score: number, primary_image_url: string | null = null) {
   return {
     id: r.id,
     casting_name: r.castingName,
@@ -129,6 +150,7 @@ export function toListItem(r: CarRow, confidence_score: number) {
     line_type: mapLineType(r.lineType),
     treasure_hunt_type: mapTh(r.treasureHuntType),
     confidence_score,
+    primary_image_url,
   };
 }
 
@@ -143,7 +165,7 @@ export async function getCarById(id: string) {
 
   const [variations, images, attributionsRaw, notesRaw, confRows] = await Promise.all([
     db.select().from(carVariations).where(eq(carVariations.carId, id)),
-    db.select().from(carImages).where(eq(carImages.carId, id)),
+    db.select().from(carImages).where(eq(carImages.carId, id)).orderBy(asc(carImages.id)),
     db
       .select({
         fieldPath: carSourceAttributions.fieldPath,
@@ -180,6 +202,7 @@ export async function getCarById(id: string) {
   ]);
 
   const confidence_score = aggregateConfidence(confRows);
+  const primary_image_url = images[0]?.officialImageUrl ?? null;
   const thMarkers = attributionsRaw
     .filter((a) => a.fieldPath === "treasure_hunt_markers" && a.value)
     .map((a) => a.value as string);
@@ -191,7 +214,7 @@ export async function getCarById(id: string) {
       : buildThExplanation(thType, car.castingName, thMarkers);
 
   return {
-    ...toListItem(car, confidence_score),
+    ...toListItem(car, confidence_score, primary_image_url),
     description: car.description,
     identifiers: {
       model_number: car.modelNumber,

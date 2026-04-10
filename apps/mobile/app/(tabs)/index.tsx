@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   type DimensionValue,
   type ViewStyle,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
@@ -85,6 +87,16 @@ const CarRow = memo(function CarRow({ item, index }: { item: CarListItemDto; ind
         accessibilityLabel={`Open reference: ${item.casting_name}`}
       >
         <View style={styles.rowTop}>
+          {item.primary_image_url ? (
+            <Image
+              source={{ uri: item.primary_image_url }}
+              style={styles.rowThumb}
+              resizeMode="cover"
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View style={[styles.rowThumb, styles.rowThumbPlaceholder]} accessibilityElementsHidden />
+          )}
           <View style={styles.rowTitleBlock}>
             <Text style={styles.rowTitle} numberOfLines={2}>
               {item.casting_name}
@@ -340,16 +352,27 @@ export default function SearchScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.chrome, chromeWideStyle]}>
-        <Animated.View
-          entering={FadeInDown.duration(420).delay(40)}
-          style={[styles.heroBlock, !filtersExpanded && styles.heroBlockCompact]}
+        <View
+          style={[styles.heroShell, !filtersExpanded && styles.heroShellCompact]}
         >
-          <Text style={styles.heroKicker}>Identify in the aisle</Text>
-          <Text style={styles.heroTitle}>Reference search</Text>
-          <Text style={styles.heroSub} numberOfLines={filtersExpanded ? undefined : 2}>
-            Official-first data with clear sources — built for collectors, not resale noise.
-          </Text>
-        </Animated.View>
+          <LinearGradient
+            colors={[...theme.heroWashGradientColors]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.heroWash}
+            pointerEvents="none"
+          />
+          <Animated.View
+            entering={FadeInDown.duration(420).delay(40)}
+            style={[styles.heroBlock, !filtersExpanded && styles.heroBlockTight]}
+          >
+            <Text style={styles.heroKicker}>Identify in the aisle</Text>
+            <Text style={styles.heroTitle}>Reference search</Text>
+            <Text style={styles.heroSub} numberOfLines={filtersExpanded ? undefined : 2}>
+              Official-first data with clear sources — built for collectors, not resale noise.
+            </Text>
+          </Animated.View>
+        </View>
 
         <TextInput
           placeholder="Casting, series, or numeric SKU / UPC"
@@ -371,7 +394,7 @@ export default function SearchScreen() {
           accessibilityHint="Shows line, year, and treasure hunt options"
           accessibilityState={{ expanded: filtersExpanded }}
         >
-          <IconFilterSliders color={theme.accent} size={22} />
+          <IconFilterSliders color={theme.accentSecondary} size={22} />
           <View style={styles.filterSummaryTextBlock}>
             <Text style={styles.filterSummaryTitle}>Filters</Text>
             <Text style={styles.filterSummaryMeta} numberOfLines={1}>
@@ -407,7 +430,7 @@ export default function SearchScreen() {
             >
               {LINE_FILTERS.map((f) => {
                 const selected = line === f.key;
-                const fg = selected ? theme.accent : theme.textSecondary;
+                const fg = selected ? theme.accentSecondary : theme.textSecondary;
                 return (
                   <FilterChip
                     key={f.key}
@@ -415,6 +438,10 @@ export default function SearchScreen() {
                     selected={selected}
                     onPress={() => setLine(f.key)}
                     a11yLabel={`Line filter: ${f.label}`}
+                    selectedTint={{
+                      border: theme.accentSecondary,
+                      background: theme.accentSecondaryMuted,
+                    }}
                   />
                 );
               })}
@@ -432,7 +459,16 @@ export default function SearchScreen() {
             >
               {HUNT_FILTERS.map((f) => {
                 const selected = hunt === f.key;
-                const fg = selected ? theme.accent : theme.textSecondary;
+                const isChase = f.key === "TH" || f.key === "STH";
+                const fg = selected
+                  ? isChase
+                    ? theme.trackYellow
+                    : theme.accentSecondary
+                  : theme.textSecondary;
+                const huntSelectedTint =
+                  isChase
+                    ? { border: theme.trackYellow, background: theme.accentYellowMuted }
+                    : { border: theme.accentSecondary, background: theme.accentSecondaryMuted };
                 return (
                   <FilterChip
                     key={f.key}
@@ -440,6 +476,7 @@ export default function SearchScreen() {
                     selected={selected}
                     onPress={() => setHunt(f.key)}
                     a11yLabel={`Treasure hunt filter: ${f.label}`}
+                    selectedTint={huntSelectedTint}
                   />
                 );
               })}
@@ -495,11 +532,25 @@ const styles = StyleSheet.create({
   },
   listFlex: { flex: 1 },
   listContent: { paddingHorizontal: theme.spaceLg, paddingTop: theme.spaceMd },
-  heroBlock: {
+  heroShell: {
+    position: "relative",
+    borderRadius: theme.radiusLg,
+    overflow: "hidden",
     marginBottom: theme.spaceLg,
   },
-  heroBlockCompact: {
+  heroShellCompact: {
     marginBottom: theme.spaceSm,
+  },
+  heroWash: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: theme.radiusLg,
+  },
+  heroBlock: {
+    paddingVertical: theme.spaceSm,
+    paddingHorizontal: theme.spaceSm,
+  },
+  heroBlockTight: {
+    paddingVertical: theme.spaceXs,
   },
   filterSummaryRow: {
     flexDirection: "row",
@@ -532,7 +583,7 @@ const styles = StyleSheet.create({
   },
   heroKicker: {
     ...theme.typeKicker,
-    color: theme.accent,
+    color: theme.trackYellow,
   },
   heroTitle: {
     ...theme.typeTitleLg,
@@ -614,12 +665,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: theme.spaceSm,
     alignItems: "center",
-    backgroundColor: theme.bgSubtle,
+    backgroundColor: theme.dangerSurface,
     borderRadius: theme.radiusMd,
     padding: theme.spaceMd,
     marginTop: theme.spaceSm,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.danger + "44",
+    borderColor: theme.dangerBorder,
   },
   bannerErrTxt: { flex: 1, color: theme.danger, fontSize: 14, lineHeight: 20, fontWeight: "600" },
   rowCard: {
@@ -631,8 +682,20 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     ...theme.shadow.card,
   },
-  rowTop: { flexDirection: "row", alignItems: "flex-start" },
-  rowTitleBlock: { flex: 1 },
+  rowTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.spaceMd },
+  rowThumb: {
+    width: 76,
+    height: 52,
+    borderRadius: theme.radiusSm,
+    backgroundColor: theme.bgSubtle,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  rowThumbPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowTitleBlock: { flex: 1, minWidth: 0 },
   rowTitle: { fontSize: 18, fontWeight: "800", color: theme.text, letterSpacing: -0.2 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
   rowMeta: { marginTop: theme.spaceSm, color: theme.textSecondary, fontSize: 14, fontWeight: "500" },

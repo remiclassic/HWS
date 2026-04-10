@@ -26,7 +26,8 @@ type IconChipProps = Base & {
   onPresentTooltip?: (anchor: LayoutRectangle, title: string, detail?: string) => void;
   /** From parent: `usePrefersFinePointer()` — hand cursor on desktop web only, not mobile web */
   webShowFinePointer?: boolean;
-  selectedTint?: never;
+  /** When selected, tint shell (e.g. field chrome vs hunt yellow vs primary) */
+  selectedTint?: { border: string; background: string };
 };
 
 /** Forms (status, condition): text only, no tooltip overlay */

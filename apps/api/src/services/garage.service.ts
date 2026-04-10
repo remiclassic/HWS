@@ -5,7 +5,7 @@ import type { CreateUserCarBody, PatchUserCarBody, UserCarPhotoDto } from "@hotw
 import { db } from "../db/client.js";
 import { canonicalCars, userCarPhotos, userCars } from "../db/schema.js";
 import { userCarPhotoDiskPath, userCarPhotoPublicPath } from "../lib/uploads.js";
-import { confidenceByCarIds, getCarById, toListItem } from "./cars.service.js";
+import { confidenceByCarIds, getCarById, primaryImageUrlByCarIds, toListItem } from "./cars.service.js";
 
 const MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -64,11 +64,14 @@ export async function listGarage(userId: string) {
     .orderBy(desc(userCars.dateAdded));
 
   const carIds = rows.map((r) => r.car.id);
-  const conf = await confidenceByCarIds(carIds);
+  const [conf, primaryImgs] = await Promise.all([
+    confidenceByCarIds(carIds),
+    primaryImageUrlByCarIds(carIds),
+  ]);
   const photoMap = await photosByUserCarIds(rows.map((r) => r.uc.id));
 
   return rows.map(({ uc, car }) => {
-    const listPayload = toListItem(car, conf.get(car.id) ?? 0.5);
+    const listPayload = toListItem(car, conf.get(car.id) ?? 0.5, primaryImgs.get(car.id) ?? null);
     return {
       id: uc.id,
       user_id: uc.userId,
@@ -127,6 +130,7 @@ export async function createUserCar(userId: string, body: CreateUserCarBody) {
           line_type: detail.line_type,
           treasure_hunt_type: detail.treasure_hunt_type,
           confidence_score: detail.confidence_score,
+          primary_image_url: detail.primary_image_url,
         }
       : undefined,
   };
@@ -181,6 +185,7 @@ export async function patchUserCar(userId: string, id: string, body: PatchUserCa
           line_type: detail.line_type,
           treasure_hunt_type: detail.treasure_hunt_type,
           confidence_score: detail.confidence_score,
+          primary_image_url: detail.primary_image_url,
         }
       : undefined,
   };

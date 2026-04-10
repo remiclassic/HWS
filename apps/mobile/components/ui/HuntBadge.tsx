@@ -35,7 +35,11 @@ const styles = StyleSheet.create({
     borderRadius: theme.radiusFull,
     borderWidth: 1,
   },
-  th: { backgroundColor: theme.thBg, borderColor: theme.thBorder },
+  th: {
+    backgroundColor: theme.thBg,
+    borderColor: theme.trackYellow,
+    borderWidth: 2,
+  },
   sth: { backgroundColor: theme.sthBg, borderColor: theme.sthBorder },
   dot: { width: 6, height: 6, borderRadius: 3 },
   dotTh: { backgroundColor: theme.thText },
