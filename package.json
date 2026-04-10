@@ -1,0 +1,22 @@
+{
+  "name": "hot-wheels-spotter",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build -w @hotwheels/shared",
+    "build": "npm run build -w @hotwheels/shared -w @hotwheels/api",
+    "lint": "npm run lint -w @hotwheels/shared -w @hotwheels/api && npm run lint -w @hotwheels/mobile",
+    "db:up": "docker compose -f infra/docker-compose.yml up -d",
+    "db:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  }
+}
