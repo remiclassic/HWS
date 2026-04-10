@@ -20,6 +20,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -347,14 +348,25 @@ export default function SearchScreen() {
     setFiltersExpanded((v) => !v);
   }, []);
 
-  const filterTogglePress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
+  const filtersAreDirty = useMemo(
+    () => year.trim() !== "" || line !== "all" || hunt !== "all",
+    [year, line, hunt],
+  );
 
-  return (
-    <View style={styles.screen}>
+  const resetFilters = useCallback(() => {
+    void Haptics.selectionAsync();
+    setYear("");
+    setLine("all");
+    setHunt("all");
+  }, []);
+
+  const filterTogglePress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
+  const resetFilterPress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
+
+  const listHeader = useMemo(
+    () => (
       <View style={[styles.chrome, chromeWideStyle]}>
-        <View
-          style={[styles.heroShell, !filtersExpanded && styles.heroShellCompact]}
-        >
+        <View style={[styles.heroShell, !filtersExpanded && styles.heroShellCompact]}>
           <LinearGradient
             colors={[...theme.heroWashGradientColors]}
             start={{ x: 0.5, y: 0 }}
@@ -384,106 +396,161 @@ export default function SearchScreen() {
           autoCapitalize="none"
         />
 
-        <ReanimatedPressable
-          onPress={toggleFiltersExpanded}
-          onPressIn={filterTogglePress.onPressIn}
-          onPressOut={filterTogglePress.onPressOut}
-          style={[styles.filterSummaryRow, filterTogglePress.animatedStyle]}
-          accessibilityRole="button"
-          accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
-          accessibilityHint="Shows line, year, and treasure hunt options"
-          accessibilityState={{ expanded: filtersExpanded }}
-        >
-          <IconFilterSliders color={theme.accentSecondary} size={22} />
-          <View style={styles.filterSummaryTextBlock}>
-            <Text style={styles.filterSummaryTitle}>Filters</Text>
-            <Text style={styles.filterSummaryMeta} numberOfLines={1}>
-              {filterSummaryLine}
-            </Text>
+        <View style={[styles.filterPanel, filtersExpanded && styles.filterPanelOpen]}>
+          <View style={[styles.filterPanelHeader, filtersExpanded && styles.filterPanelHeaderOpen]}>
+            <ReanimatedPressable
+              onPress={toggleFiltersExpanded}
+              onPressIn={filterTogglePress.onPressIn}
+              onPressOut={filterTogglePress.onPressOut}
+              style={[styles.filterPanelHeaderMain, filterTogglePress.animatedStyle]}
+              accessibilityRole="button"
+              accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
+              accessibilityHint="Shows line, year, and treasure hunt options"
+              accessibilityState={{ expanded: filtersExpanded }}
+            >
+              <IconFilterSliders color={theme.accentSecondary} size={22} />
+              <View style={styles.filterSummaryTextBlock}>
+                <Text style={styles.filterSummaryTitle}>Filters</Text>
+                <Text style={styles.filterSummaryMeta} numberOfLines={1}>
+                  {filterSummaryLine}
+                </Text>
+              </View>
+            </ReanimatedPressable>
+            {filtersExpanded ? (
+              <>
+                {filtersAreDirty ? (
+                  <ReanimatedPressable
+                    onPress={resetFilters}
+                    onPressIn={resetFilterPress.onPressIn}
+                    onPressOut={resetFilterPress.onPressOut}
+                    style={[styles.filterResetBtn, resetFilterPress.animatedStyle]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Reset filters"
+                    accessibilityHint="Clears year, line, and treasure hunt filters"
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.filterResetLabel}>Reset</Text>
+                  </ReanimatedPressable>
+                ) : (
+                  <View
+                    style={styles.filterResetBtn}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                  >
+                    <Text style={[styles.filterResetLabel, styles.filterResetLabelDisabled]}>Reset</Text>
+                  </View>
+                )}
+                <ReanimatedPressable
+                  onPress={toggleFiltersExpanded}
+                  onPressIn={filterTogglePress.onPressIn}
+                  onPressOut={filterTogglePress.onPressOut}
+                  style={[styles.filterChevronBtn, filterTogglePress.animatedStyle]}
+                  accessibilityRole="button"
+                  accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <IconChevronUp color={theme.textSecondary} size={22} />
+                </ReanimatedPressable>
+              </>
+            ) : (
+              <ReanimatedPressable
+                onPress={toggleFiltersExpanded}
+                onPressIn={filterTogglePress.onPressIn}
+                onPressOut={filterTogglePress.onPressOut}
+                style={[styles.filterChevronBtn, filterTogglePress.animatedStyle]}
+                accessibilityRole="button"
+                accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <IconChevronDown color={theme.textSecondary} size={22} />
+              </ReanimatedPressable>
+            )}
           </View>
+
           {filtersExpanded ? (
-            <IconChevronUp color={theme.textSecondary} size={22} />
-          ) : (
-            <IconChevronDown color={theme.textSecondary} size={22} />
-          )}
-        </ReanimatedPressable>
+            <View style={styles.filterPanelBody}>
+              <Text style={styles.filterPanelHint}>
+                Narrow the catalog by year, product line, and chase tier.
+              </Text>
+              <TextInput
+                placeholder="Year (optional)"
+                value={year}
+                onChangeText={setYear}
+                keyboardType="number-pad"
+                style={styles.inputYear}
+                placeholderTextColor={theme.textMuted}
+              />
 
-        {filtersExpanded ? (
-          <>
-            <TextInput
-              placeholder="Year (optional)"
-              value={year}
-              onChangeText={setYear}
-              keyboardType="number-pad"
-              style={styles.inputYear}
-              placeholderTextColor={theme.textMuted}
-            />
+              <Text style={styles.filterLabel}>Line</Text>
+              <Text style={styles.filterHint}>Swipe for more</Text>
+              <ScrollView
+                {...themedScrollIndicatorProps}
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={showFilterScrollIndicator}
+                style={styles.filterScroll}
+                contentContainerStyle={styles.filterScrollContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {LINE_FILTERS.map((f) => {
+                  const selected = line === f.key;
+                  const fg = selected ? theme.accentSecondary : theme.textSecondary;
+                  return (
+                    <FilterChip
+                      key={f.key}
+                      icon={lineFilterIconFor(f.key, fg, PILL_ICON_SIZE)}
+                      selected={selected}
+                      onPress={() => setLine(f.key)}
+                      a11yLabel={`Line filter: ${f.label}`}
+                      selectedTint={{
+                        border: theme.accentSecondary,
+                        background: theme.accentSecondaryMuted,
+                      }}
+                    />
+                  );
+                })}
+              </ScrollView>
+              <FilterSelectionHelp title={FILTER_LINE_HELP[line].title} detail={FILTER_LINE_HELP[line].detail} />
 
-            <Text style={styles.filterLabel}>Line</Text>
-            <Text style={styles.filterHint}>Swipe for more</Text>
-            <ScrollView
-              {...themedScrollIndicatorProps}
-              horizontal
-              showsHorizontalScrollIndicator={showFilterScrollIndicator}
-              style={styles.filterScroll}
-              contentContainerStyle={styles.filterScrollContent}
-            >
-              {LINE_FILTERS.map((f) => {
-                const selected = line === f.key;
-                const fg = selected ? theme.accentSecondary : theme.textSecondary;
-                return (
-                  <FilterChip
-                    key={f.key}
-                    icon={lineFilterIconFor(f.key, fg, PILL_ICON_SIZE)}
-                    selected={selected}
-                    onPress={() => setLine(f.key)}
-                    a11yLabel={`Line filter: ${f.label}`}
-                    selectedTint={{
-                      border: theme.accentSecondary,
-                      background: theme.accentSecondaryMuted,
-                    }}
-                  />
-                );
-              })}
-            </ScrollView>
-            <FilterSelectionHelp title={FILTER_LINE_HELP[line].title} detail={FILTER_LINE_HELP[line].detail} />
-
-            <Text style={styles.filterLabel}>Treasure Hunt</Text>
-            <Text style={styles.filterHint}>Swipe for more</Text>
-            <ScrollView
-              {...themedScrollIndicatorProps}
-              horizontal
-              showsHorizontalScrollIndicator={showFilterScrollIndicator}
-              style={styles.filterScrollLast}
-              contentContainerStyle={styles.filterScrollContent}
-            >
-              {HUNT_FILTERS.map((f) => {
-                const selected = hunt === f.key;
-                const isChase = f.key === "TH" || f.key === "STH";
-                const fg = selected
-                  ? isChase
-                    ? theme.trackYellow
-                    : theme.accentSecondary
-                  : theme.textSecondary;
-                const huntSelectedTint =
-                  isChase
-                    ? { border: theme.trackYellow, background: theme.accentYellowMuted }
-                    : { border: theme.accentSecondary, background: theme.accentSecondaryMuted };
-                return (
-                  <FilterChip
-                    key={f.key}
-                    icon={huntFilterIconFor(f.key, fg, PILL_ICON_SIZE)}
-                    selected={selected}
-                    onPress={() => setHunt(f.key)}
-                    a11yLabel={`Treasure hunt filter: ${f.label}`}
-                    selectedTint={huntSelectedTint}
-                  />
-                );
-              })}
-            </ScrollView>
-            <FilterSelectionHelp title={FILTER_HUNT_HELP[hunt].title} detail={FILTER_HUNT_HELP[hunt].detail} />
-          </>
-        ) : null}
+              <Text style={styles.filterLabel}>Treasure Hunt</Text>
+              <Text style={styles.filterHint}>Swipe for more</Text>
+              <ScrollView
+                {...themedScrollIndicatorProps}
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={showFilterScrollIndicator}
+                style={styles.filterScrollLast}
+                contentContainerStyle={styles.filterScrollContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {HUNT_FILTERS.map((f) => {
+                  const selected = hunt === f.key;
+                  const isChase = f.key === "TH" || f.key === "STH";
+                  const fg = selected
+                    ? isChase
+                      ? theme.trackYellow
+                      : theme.accentSecondary
+                    : theme.textSecondary;
+                  const huntSelectedTint =
+                    isChase
+                      ? { border: theme.trackYellow, background: theme.accentYellowMuted }
+                      : { border: theme.accentSecondary, background: theme.accentSecondaryMuted };
+                  return (
+                    <FilterChip
+                      key={f.key}
+                      icon={huntFilterIconFor(f.key, fg, PILL_ICON_SIZE)}
+                      selected={selected}
+                      onPress={() => setHunt(f.key)}
+                      a11yLabel={`Treasure hunt filter: ${f.label}`}
+                      selectedTint={huntSelectedTint}
+                    />
+                  );
+                })}
+              </ScrollView>
+              <FilterSelectionHelp title={FILTER_HUNT_HELP[hunt].title} detail={FILTER_HUNT_HELP[hunt].detail} />
+            </View>
+          ) : null}
+        </View>
 
         {carsQuery.isError ? (
           <View style={styles.bannerErr}>
@@ -494,7 +561,27 @@ export default function SearchScreen() {
           </View>
         ) : null}
       </View>
+    ),
+    [
+      chromeWideStyle,
+      filtersExpanded,
+      q,
+      year,
+      line,
+      hunt,
+      filterSummaryLine,
+      filtersAreDirty,
+      toggleFiltersExpanded,
+      resetFilters,
+      filterTogglePress,
+      resetFilterPress,
+      showFilterScrollIndicator,
+      carsQuery.isError,
+    ],
+  );
 
+  return (
+    <View style={styles.screen}>
       <FlatList
         {...themedScrollIndicatorProps}
         style={styles.listFlex}
@@ -503,13 +590,16 @@ export default function SearchScreen() {
         renderItem={renderItem}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={Platform.OS === "android"}
+        nestedScrollEnabled
         refreshing={carsQuery.isFetching && !carsQuery.isFetchingNextPage}
         onRefresh={() => void carsQuery.refetch()}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.35}
+        ListHeaderComponent={listHeader}
         contentContainerStyle={[
           styles.listContent,
           {
+            flexGrow: 1,
             paddingBottom: Math.max(theme.space3xl, listBottomPad),
           },
           listWideStyle,
@@ -524,13 +614,12 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.bg },
   chrome: {
-    paddingHorizontal: theme.spaceLg,
     paddingBottom: theme.spaceMd,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
     backgroundColor: theme.bg,
   },
-  listFlex: { flex: 1 },
+  listFlex: { flex: 1, minHeight: 0 },
   listContent: { paddingHorizontal: theme.spaceLg, paddingTop: theme.spaceMd },
   heroShell: {
     position: "relative",
@@ -552,17 +641,72 @@ const styles = StyleSheet.create({
   heroBlockTight: {
     paddingVertical: theme.spaceXs,
   },
-  filterSummaryRow: {
+  filterPanel: {
+    marginBottom: theme.spaceSm,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.borderStrong,
+    overflow: "hidden",
+  },
+  filterPanelOpen: {
+    borderColor: theme.accentSecondary,
+    borderWidth: 1,
+    backgroundColor: theme.bgRaised,
+  },
+  filterPanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spaceSm,
+    paddingVertical: 10,
+    paddingHorizontal: theme.spaceMd,
+  },
+  filterPanelHeaderOpen: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.borderSticker,
+  },
+  filterPanelHeaderMain: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spaceMd,
-    paddingVertical: 10,
+    minWidth: 0,
+  },
+  filterChevronBtn: {
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: theme.touchTargetMin,
+    minHeight: theme.touchTargetMin,
+    marginRight: -theme.spaceXs,
+  },
+  filterResetBtn: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: theme.spaceSm,
+    paddingHorizontal: theme.spaceSm,
+    minHeight: theme.touchTargetMin,
+  },
+  filterResetLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: theme.accentSecondary,
+    letterSpacing: 0.2,
+  },
+  filterResetLabelDisabled: {
+    color: theme.textMuted,
+    fontWeight: "700",
+  },
+  filterPanelBody: {
+    paddingTop: theme.spaceMd,
     paddingHorizontal: theme.spaceMd,
-    marginBottom: theme.spaceSm,
-    backgroundColor: theme.bgElevated,
-    borderRadius: theme.radiusMd,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.borderStrong,
+    paddingBottom: theme.spaceMd,
+  },
+  filterPanelHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    color: theme.textSecondary,
+    marginBottom: theme.spaceMd,
   },
   filterSummaryTextBlock: {
     flex: 1,
