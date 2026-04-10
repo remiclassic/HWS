@@ -6,6 +6,8 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { OnboardingNavigationGate } from "../components/navigation/OnboardingNavigationGate";
+import { OnboardingProvider, useOnboarding } from "../contexts/OnboardingContext";
 import { authAnonymous } from "../lib/api";
 import { setToken, getToken } from "../lib/authStorage";
 import { asyncStoragePersister, queryClient } from "../lib/queryClient";
@@ -58,6 +60,80 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function MainStack() {
+  return (
+    <>
+      <StatusBar style="light" />
+      <WebScrollbarStyles />
+      <Stack
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: theme.bgElevated,
+          },
+          headerShadowVisible: false,
+          headerTintColor: theme.accent,
+          headerTitleStyle: {
+            fontWeight: "800",
+            fontSize: 17,
+            color: theme.text,
+          },
+          contentStyle: { backgroundColor: theme.bg },
+        }}
+      >
+        <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="car/[id]" options={{ title: "Reference" }} />
+        <Stack.Screen name="th/[id]" options={{ title: "Treasure Hunt" }} />
+        <Stack.Screen name="scan" options={{ title: "Scan barcode" }} />
+        <Stack.Screen name="garage-item/[id]" options={{ title: "Edit garage item" }} />
+        <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
+        <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
+        <Stack.Screen name="collector-progress" options={{ title: "Collector progress" }} />
+        <Stack.Screen name="leaderboard" options={{ title: "Leaderboard" }} />
+        <Stack.Screen name="collector/[slug]" options={{ title: "Collector" }} />
+        <Stack.Screen name="settings" options={{ title: "Settings" }} />
+        <Stack.Screen name="login" options={{ title: "Sign in" }} />
+        <Stack.Screen name="signup" options={{ title: "Create account" }} />
+        <Stack.Screen name="link-email" options={{ title: "Link email" }} />
+        <Stack.Screen name="legal/privacy" options={{ title: "Privacy" }} />
+        <Stack.Screen name="legal/terms" options={{ title: "Terms" }} />
+      </Stack>
+    </>
+  );
+}
+
+function RootLayoutBody() {
+  const { ready, isComplete } = useOnboarding();
+
+  if (!ready) {
+    return (
+      <View style={styles.boot}>
+        <Animated.View entering={FadeIn.duration(480)} style={styles.bootInner}>
+          <Text style={styles.bootMark}>Hot Wheels</Text>
+          <Text style={styles.bootTitle}>Spotter</Text>
+          <ActivityIndicator color={theme.accent} style={{ marginTop: 20 }} size="large" />
+          <Text style={styles.bootSub}>Collector field tool</Text>
+        </Animated.View>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <OnboardingNavigationGate />
+      {isComplete ? (
+        <AuthBootstrap>
+          <GarageSyncBootstrap>
+            <MainStack />
+          </GarageSyncBootstrap>
+        </AuthBootstrap>
+      ) : (
+        <MainStack />
+      )}
+    </>
+  );
+}
+
 export default function RootLayout() {
   const persistOptions = useMemo(
     () => ({
@@ -75,39 +151,9 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
-        <AuthBootstrap>
-          <GarageSyncBootstrap>
-            <StatusBar style="light" />
-            <WebScrollbarStyles />
-            <Stack
-              screenOptions={{
-                headerStyle: {
-                  backgroundColor: theme.bgElevated,
-                },
-                headerShadowVisible: false,
-                headerTintColor: theme.accent,
-                headerTitleStyle: {
-                  fontWeight: "800",
-                  fontSize: 17,
-                  color: theme.text,
-                },
-                contentStyle: { backgroundColor: theme.bg },
-              }}
-            >
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="car/[id]" options={{ title: "Reference" }} />
-              <Stack.Screen name="th/[id]" options={{ title: "Treasure Hunt" }} />
-              <Stack.Screen name="scan" options={{ title: "Scan barcode" }} />
-              <Stack.Screen name="garage-item/[id]" options={{ title: "Edit garage item" }} />
-              <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
-              <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
-              <Stack.Screen name="collector-progress" options={{ title: "Collector progress" }} />
-              <Stack.Screen name="leaderboard" options={{ title: "Leaderboard" }} />
-              <Stack.Screen name="collector/[slug]" options={{ title: "Collector" }} />
-              <Stack.Screen name="settings" options={{ title: "Settings" }} />
-            </Stack>
-          </GarageSyncBootstrap>
-        </AuthBootstrap>
+        <OnboardingProvider>
+          <RootLayoutBody />
+        </OnboardingProvider>
       </PersistQueryClientProvider>
     </SafeAreaProvider>
   );

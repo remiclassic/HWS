@@ -4,6 +4,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -13,21 +14,28 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Card } from "../components/ui/Card";
+import { useOnboarding } from "../contexts/OnboardingContext";
 import {
+  deleteMeAccount,
   fetchGamification,
+  fetchMeAccount,
+  fetchMeExport,
   fetchMeSettings,
   patchLeaderboardProfile,
   patchNotificationPreferences,
   registerPushToken,
   unregisterPushTokens,
 } from "../lib/api";
+import { refreshAnonymousSession } from "../lib/authSession";
 import { registerForExpoPushAsync } from "../lib/registerForPush";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
 export default function SettingsScreen() {
   const qc = useQueryClient();
+  const { replayIntro } = useOnboarding();
   const settingsQ = useQuery({ queryKey: ["me-settings"] as const, queryFn: fetchMeSettings });
   const gamificationQ = useQuery({ queryKey: ["gamification"] as const, queryFn: fetchGamification });
+  const accountQ = useQuery({ queryKey: ["me-account"] as const, queryFn: fetchMeAccount });
   const [wantPush, setWantPush] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
@@ -89,6 +97,65 @@ export default function SettingsScreen() {
     });
   }, [displayName, leaderboardOptIn, saveLeaderboard]);
 
+  const onExportData = useCallback(async () => {
+    try {
+      const data = await fetchMeExport();
+      const json = JSON.stringify(data, null, 2);
+      await Share.share({ message: json, title: "Hot Wheels Spotter export" });
+    } catch (e) {
+      Alert.alert("Export failed", String(e));
+    }
+  }, []);
+
+  const deleteAccountMut = useMutation({
+    mutationFn: deleteMeAccount,
+    onSuccess: async () => {
+      await refreshAnonymousSession();
+      router.replace("/(tabs)");
+      Alert.alert("Account deleted", "A new profile was created on this device.");
+    },
+    onError: (e) => Alert.alert("Could not delete account", String(e)),
+  });
+
+  const confirmDeleteAccount = useCallback(() => {
+    Alert.alert(
+      "Delete account?",
+      "This removes your profile, garage, and related data from the server. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteAccountMut.mutate(),
+        },
+      ],
+    );
+  }, [deleteAccountMut]);
+
+  const confirmSignOut = useCallback(() => {
+    Alert.alert(
+      "Sign out?",
+      "You will get a fresh anonymous profile on this device. Sign in again to restore an email-linked garage.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign out",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await refreshAnonymousSession();
+                await qc.invalidateQueries();
+              } catch (e) {
+                Alert.alert("Sign out failed", String(e));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [qc]);
+
   return (
     <ScrollView
       {...themedScrollIndicatorProps}
@@ -106,6 +173,51 @@ export default function SettingsScreen() {
       >
         <Text style={styles.progressLinkTxt}>Collector progress & achievements</Text>
       </Pressable>
+
+      <Card title="Account" style={styles.card}>
+        <Text style={styles.hint}>
+          {accountQ.data?.email
+            ? `Signed in as ${accountQ.data.email}.`
+            : "Anonymous profile on this device. Link an email to sign in on another device with the same garage."}
+        </Text>
+        {accountQ.data?.email ? (
+          <Pressable
+            onPress={confirmSignOut}
+            style={styles.stackLinkWrap}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+          >
+            <Text style={styles.stackLinkTxt}>Sign out</Text>
+          </Pressable>
+        ) : (
+          <>
+            <Pressable
+              onPress={() => router.push("/link-email")}
+              style={styles.stackLinkWrap}
+              accessibilityRole="button"
+              accessibilityLabel="Link email"
+            >
+              <Text style={styles.stackLinkTxt}>Link email to this profile</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/login")}
+              style={styles.stackLinkWrap}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in"
+            >
+              <Text style={styles.stackLinkTxt}>Sign in</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/signup")}
+              style={styles.stackLinkWrap}
+              accessibilityRole="button"
+              accessibilityLabel="Create account"
+            >
+              <Text style={styles.stackLinkTxt}>Create new account</Text>
+            </Pressable>
+          </>
+        )}
+      </Card>
 
       <Card title="Leaderboard & public profile" style={styles.card}>
         <Text style={styles.hint}>
@@ -164,7 +276,7 @@ export default function SettingsScreen() {
         <View style={styles.row}>
           <View style={{ flex: 1 }}>
             <Text style={styles.rowTitle}>Notify on catalog updates</Text>
-            <Text style={styles.rowSub}>Uses your anonymous account on this device.</Text>
+            <Text style={styles.rowSub}>Uses your Spotter account on this device.</Text>
           </View>
           <Switch
             value={wantPush}
@@ -177,6 +289,64 @@ export default function SettingsScreen() {
         {Platform.OS === "web" ? (
           <Text style={styles.webNote}>Push registration applies on iOS and Android builds only.</Text>
         ) : null}
+      </Card>
+
+      <Card title="Legal" style={styles.card}>
+        <Text style={styles.hint}>Review how we handle data before linking an email or enabling alerts.</Text>
+        <Pressable
+          onPress={() => router.push("/legal/privacy")}
+          style={styles.stackLinkWrap}
+          accessibilityRole="button"
+          accessibilityLabel="Privacy"
+        >
+          <Text style={styles.stackLinkTxt}>Privacy</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/legal/terms")}
+          style={styles.stackLinkWrap}
+          accessibilityRole="button"
+          accessibilityLabel="Terms"
+        >
+          <Text style={styles.stackLinkTxt}>Terms of service</Text>
+        </Pressable>
+      </Card>
+
+      <Card title="Your data" style={styles.card}>
+        <Text style={styles.hint}>
+          Export a JSON copy of your garage and preferences. Deleting your account removes server-side data for your
+          profile (see Privacy for details).
+        </Text>
+        <Pressable
+          onPress={() => void onExportData()}
+          style={styles.stackLinkWrap}
+          accessibilityRole="button"
+          accessibilityLabel="Export my data"
+        >
+          <Text style={styles.stackLinkTxt}>Export my data</Text>
+        </Pressable>
+        <Pressable
+          onPress={confirmDeleteAccount}
+          disabled={deleteAccountMut.isPending}
+          style={styles.stackLinkWrap}
+          accessibilityRole="button"
+          accessibilityLabel="Delete account"
+        >
+          <Text style={[styles.stackLinkTxt, styles.dangerLink]}>
+            {deleteAccountMut.isPending ? "Deleting…" : "Delete account"}
+          </Text>
+        </Pressable>
+      </Card>
+
+      <Card title="Intro" style={styles.card}>
+        <Text style={styles.hint}>See the welcome slides again.</Text>
+        <Pressable
+          onPress={() => void replayIntro()}
+          style={styles.stackLinkWrap}
+          accessibilityRole="button"
+          accessibilityLabel="Replay intro"
+        >
+          <Text style={styles.stackLinkTxt}>Replay intro</Text>
+        </Pressable>
       </Card>
 
       <Card title="Tips" style={styles.card}>
@@ -248,4 +418,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: theme.accent,
   },
+  stackLinkWrap: { paddingVertical: theme.spaceSm },
+  stackLinkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
+  dangerLink: { color: theme.danger },
 });

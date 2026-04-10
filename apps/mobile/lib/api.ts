@@ -1,10 +1,13 @@
 import type {
+  AuthEmailPasswordBody,
   CarDetailDto,
   CarsListResponse,
   CarsQuery,
   CreateCarDataReportBody,
   CreateUserCarBody,
   LeaderboardResponse,
+  MeAccountResponse,
+  MeExportResponse,
   MeGamificationResponse,
   MeSettingsResponse,
   PatchLeaderboardProfileBody,
@@ -21,6 +24,8 @@ import {
   carsListResponseSchema,
   garagePhotoUploadResponseSchema,
   leaderboardResponseSchema,
+  meAccountResponseSchema,
+  meExportResponseSchema,
   meGamificationResponseSchema,
   meSettingsResponseSchema,
   publicCollectorProfileSchema,
@@ -30,6 +35,14 @@ import { getApiBase } from "./config";
 import { getToken } from "./authStorage";
 
 const REQUEST_TIMEOUT_MS = 25_000;
+
+/** Prefer Fastify `message` (exception text) over generic `error` label. */
+function apiErrorFromBody(data: unknown, statusText: string): string {
+  const o = data && typeof data === "object" ? (data as { message?: unknown; error?: unknown }) : null;
+  const msg = typeof o?.message === "string" && o.message ? o.message : null;
+  const err = typeof o?.error === "string" && o.error ? o.error : null;
+  return msg ?? err ?? statusText;
+}
 
 async function request<T>(
   path: string,
@@ -74,7 +87,7 @@ async function request<T>(
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+    throw new Error(apiErrorFromBody(data, res.statusText));
   }
   return data as T;
 }
@@ -82,6 +95,44 @@ async function request<T>(
 export async function authAnonymous(): Promise<{ token: string; user_id: string }> {
   const raw = await request<unknown>("/auth/anonymous", { method: "POST" }, true);
   return authTokenResponseSchema.parse(raw);
+}
+
+export async function authRegister(body: AuthEmailPasswordBody): Promise<{ token: string; user_id: string }> {
+  const raw = await request<unknown>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }, true);
+  return authTokenResponseSchema.parse(raw);
+}
+
+export async function authLogin(body: AuthEmailPasswordBody): Promise<{ token: string; user_id: string }> {
+  const raw = await request<unknown>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }, true);
+  return authTokenResponseSchema.parse(raw);
+}
+
+export async function authLinkEmail(body: AuthEmailPasswordBody): Promise<{ token: string; user_id: string }> {
+  const raw = await request<unknown>("/auth/link-email", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return authTokenResponseSchema.parse(raw);
+}
+
+export async function fetchMeAccount(): Promise<MeAccountResponse> {
+  const raw = await request<unknown>("/me/account");
+  return meAccountResponseSchema.parse(raw);
+}
+
+export async function fetchMeExport(): Promise<MeExportResponse> {
+  const raw = await request<unknown>("/me/export");
+  return meExportResponseSchema.parse(raw);
+}
+
+export async function deleteMeAccount(): Promise<void> {
+  await request<unknown>("/me", { method: "DELETE" });
 }
 
 export async function fetchCars(query: CarsQuery): Promise<CarsListResponse> {
@@ -172,7 +223,7 @@ export async function uploadGarageItemPhoto(
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+    throw new Error(apiErrorFromBody(data, res.statusText));
   }
   return garagePhotoUploadResponseSchema.parse(data).photo;
 }

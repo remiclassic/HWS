@@ -28,14 +28,20 @@ export const userCarStatusEnum = pgEnum("user_car_status", ["Owned", "Want", "Du
 export const userCarConditionEnum = pgEnum("user_car_condition", ["Carded", "Loose", "Custom"]);
 export const carDataReportStatusEnum = pgEnum("car_data_report_status", ["open", "triaged", "closed"]);
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  notifyWantListUpdates: boolean("notify_want_list_updates").notNull().default(true),
-  displayName: varchar("display_name", { length: 32 }),
-  leaderboardOptIn: boolean("leaderboard_opt_in").notNull().default(false),
-  leaderboardSlug: varchar("leaderboard_slug", { length: 12 }),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    notifyWantListUpdates: boolean("notify_want_list_updates").notNull().default(true),
+    displayName: varchar("display_name", { length: 32 }),
+    leaderboardOptIn: boolean("leaderboard_opt_in").notNull().default(false),
+    leaderboardSlug: varchar("leaderboard_slug", { length: 12 }),
+    email: varchar("email", { length: 255 }),
+    passwordHash: text("password_hash"),
+  },
+  (table) => [uniqueIndex("users_email_uidx").on(table.email)],
+);
 
 export const userPushTokens = pgTable(
   "user_push_tokens",

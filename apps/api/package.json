@@ -20,6 +20,7 @@
     "@fastify/multipart": "^10.0.0",
     "@fastify/static": "^9.1.0",
     "@hotwheels/shared": "file:../../packages/shared",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",
     "expo-server-sdk": "^6.1.0",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "drizzle-kit": "^0.30.1",

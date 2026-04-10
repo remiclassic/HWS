@@ -1,12 +1,19 @@
 import type { FastifyInstance } from "fastify";
+import { eq } from "drizzle-orm";
 import {
+  meAccountResponseSchema,
+  meExportResponseSchema,
   meGamificationResponseSchema,
   meSettingsResponseSchema,
   patchLeaderboardProfileBodySchema,
   patchNotificationPrefsBodySchema,
   registerPushTokenBodySchema,
+  userCarSchema,
 } from "@hotwheels/shared";
+import { db } from "../db/client.js";
+import { users } from "../db/schema.js";
 import { requireUser } from "../lib/httpAuth.js";
+import { listGarage } from "../services/garage.service.js";
 import {
   getMeGamification,
   patchLeaderboardProfile,
@@ -20,6 +27,44 @@ import {
 } from "../services/meSettings.service.js";
 
 export async function registerMeRoutes(app: FastifyInstance) {
+  app.get("/me/account", async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const [row] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const body = meAccountResponseSchema.parse({ email: row?.email ?? null });
+    reply.send(body);
+  });
+
+  app.get("/me/export", async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const settings = await getMeSettings(userId);
+    const [row] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const items = await listGarage(userId);
+    const body = meExportResponseSchema.parse({
+      exported_at: new Date().toISOString(),
+      email: row?.email ?? null,
+      notify_want_updates: settings.notify_want_updates,
+      garage_items: items.map((i) => userCarSchema.parse(i)),
+    });
+    reply.send(body);
+  });
+
+  app.delete("/me", async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    await db.delete(users).where(eq(users.id, userId));
+    reply.status(204).send();
+  });
+
   app.get("/me/settings", async (req, reply) => {
     const userId = await requireUser(req, reply);
     if (!userId) return;

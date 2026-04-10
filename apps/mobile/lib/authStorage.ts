@@ -9,3 +9,7 @@ export async function getToken(): Promise<string | null> {
 export async function setToken(token: string): Promise<void> {
   await AsyncStorage.setItem(KEY, token);
 }
+
+export async function clearToken(): Promise<void> {
+  await AsyncStorage.removeItem(KEY);
+}

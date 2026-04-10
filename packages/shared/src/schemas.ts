@@ -157,6 +157,25 @@ export const authTokenResponseSchema = z.object({
 });
 export type AuthTokenResponse = z.infer<typeof authTokenResponseSchema>;
 
+export const authEmailPasswordBodySchema = z.object({
+  email: z.string().email().max(255),
+  password: z.string().min(8).max(128),
+});
+export type AuthEmailPasswordBody = z.infer<typeof authEmailPasswordBodySchema>;
+
+export const meAccountResponseSchema = z.object({
+  email: z.string().email().nullable(),
+});
+export type MeAccountResponse = z.infer<typeof meAccountResponseSchema>;
+
+export const meExportResponseSchema = z.object({
+  exported_at: z.string().datetime(),
+  email: z.string().email().nullable(),
+  notify_want_updates: z.boolean(),
+  garage_items: z.array(userCarSchema),
+});
+export type MeExportResponse = z.infer<typeof meExportResponseSchema>;
+
 export const createCarDataReportBodySchema = z.object({
   message: z.string().min(1).max(4000),
   field_path: z.string().max(128).nullable().optional(),
