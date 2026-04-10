@@ -53,6 +53,7 @@ export default function TabLayout() {
           fontWeight: "800",
           fontSize: 17,
           color: theme.text,
+          letterSpacing: -0.2,
         },
         tabBarActiveTintColor: theme.accent,
         tabBarInactiveTintColor: theme.textMuted,

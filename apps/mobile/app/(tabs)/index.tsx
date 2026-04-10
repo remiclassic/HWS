@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
-  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -13,7 +12,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
+  Easing,
   FadeInDown,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -37,6 +38,7 @@ import { FilterChip } from "../../components/ui/FilterChip";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { LineChip } from "../../components/ui/LineChip";
 import { ConfidenceBar } from "../../components/ui/ConfidenceBar";
+import { RemoteImage } from "../../components/ui/RemoteImage";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
@@ -88,16 +90,11 @@ const CarRow = memo(function CarRow({ item, index }: { item: CarListItemDto; ind
         accessibilityLabel={`Open reference: ${item.casting_name}`}
       >
         <View style={styles.rowTop}>
-          {item.primary_image_url ? (
-            <Image
-              source={{ uri: item.primary_image_url }}
-              style={styles.rowThumb}
-              resizeMode="cover"
-              accessibilityIgnoresInvertColors
-            />
-          ) : (
-            <View style={[styles.rowThumb, styles.rowThumbPlaceholder]} accessibilityElementsHidden />
-          )}
+          <RemoteImage
+            uri={item.primary_image_url}
+            style={[styles.rowThumb, !item.primary_image_url && styles.rowThumbPlaceholder]}
+            accessibilityLabel={item.primary_image_url ? `${item.casting_name} thumbnail` : undefined}
+          />
           <View style={styles.rowTitleBlock}>
             <Text style={styles.rowTitle} numberOfLines={2}>
               {item.casting_name}
@@ -140,6 +137,8 @@ function ListLoadingSkeleton() {
       <ShimmerLine widthPct={"88%" as DimensionValue} />
       <ShimmerLine widthPct={"72%" as DimensionValue} />
       <ShimmerLine widthPct={"45%" as DimensionValue} />
+      <ShimmerLine widthPct={"88%" as DimensionValue} />
+      <ShimmerLine widthPct={"68%" as DimensionValue} />
     </View>
   );
 }
@@ -345,6 +344,7 @@ export default function SearchScreen() {
   }, [line, hunt, year]);
 
   const toggleFiltersExpanded = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setFiltersExpanded((v) => !v);
   }, []);
 
@@ -366,7 +366,7 @@ export default function SearchScreen() {
   const listHeader = useMemo(
     () => (
       <View style={[styles.chrome, chromeWideStyle]}>
-        <View style={[styles.heroShell, !filtersExpanded && styles.heroShellCompact]}>
+        <View style={styles.heroShell}>
           <LinearGradient
             colors={[...theme.heroWashGradientColors]}
             start={{ x: 0.5, y: 0 }}
@@ -374,13 +374,10 @@ export default function SearchScreen() {
             style={styles.heroWash}
             pointerEvents="none"
           />
-          <Animated.View
-            entering={FadeInDown.duration(420).delay(40)}
-            style={[styles.heroBlock, !filtersExpanded && styles.heroBlockTight]}
-          >
+          <Animated.View entering={FadeInDown.duration(420).delay(40)} style={styles.heroBlock}>
             <Text style={styles.heroKicker}>Identify in the aisle</Text>
             <Text style={styles.heroTitle}>Reference search</Text>
-            <Text style={styles.heroSub} numberOfLines={filtersExpanded ? undefined : 2}>
+            <Text style={styles.heroSub} numberOfLines={3} ellipsizeMode="tail">
               Official-first data with clear sources — built for collectors, not resale noise.
             </Text>
           </Animated.View>
@@ -391,12 +388,15 @@ export default function SearchScreen() {
           value={q}
           onChangeText={setQ}
           style={styles.input}
-          placeholderTextColor={theme.textMuted}
+          placeholderTextColor={theme.inputPlaceholder}
           autoCorrect={false}
           autoCapitalize="none"
         />
 
-        <View style={[styles.filterPanel, filtersExpanded && styles.filterPanelOpen]}>
+        <Animated.View
+          layout={LinearTransition.duration(240).easing(Easing.out(Easing.cubic))}
+          style={[styles.filterPanel, filtersExpanded && styles.filterPanelOpen]}
+        >
           <View style={[styles.filterPanelHeader, filtersExpanded && styles.filterPanelHeaderOpen]}>
             <ReanimatedPressable
               onPress={toggleFiltersExpanded}
@@ -416,9 +416,9 @@ export default function SearchScreen() {
                 </Text>
               </View>
             </ReanimatedPressable>
-            {filtersExpanded ? (
-              <>
-                {filtersAreDirty ? (
+            <View style={styles.filterHeaderActions}>
+              {filtersExpanded ? (
+                filtersAreDirty ? (
                   <ReanimatedPressable
                     onPress={resetFilters}
                     onPressIn={resetFilterPress.onPressIn}
@@ -439,20 +439,10 @@ export default function SearchScreen() {
                   >
                     <Text style={[styles.filterResetLabel, styles.filterResetLabelDisabled]}>Reset</Text>
                   </View>
-                )}
-                <ReanimatedPressable
-                  onPress={toggleFiltersExpanded}
-                  onPressIn={filterTogglePress.onPressIn}
-                  onPressOut={filterTogglePress.onPressOut}
-                  style={[styles.filterChevronBtn, filterTogglePress.animatedStyle]}
-                  accessibilityRole="button"
-                  accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <IconChevronUp color={theme.textSecondary} size={22} />
-                </ReanimatedPressable>
-              </>
-            ) : (
+                )
+              ) : (
+                <View style={styles.filterResetSpacer} />
+              )}
               <ReanimatedPressable
                 onPress={toggleFiltersExpanded}
                 onPressIn={filterTogglePress.onPressIn}
@@ -462,9 +452,13 @@ export default function SearchScreen() {
                 accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <IconChevronDown color={theme.textSecondary} size={22} />
+                {filtersExpanded ? (
+                  <IconChevronUp color={theme.textSecondary} size={22} />
+                ) : (
+                  <IconChevronDown color={theme.textSecondary} size={22} />
+                )}
               </ReanimatedPressable>
-            )}
+            </View>
           </View>
 
           {filtersExpanded ? (
@@ -478,7 +472,7 @@ export default function SearchScreen() {
                 onChangeText={setYear}
                 keyboardType="number-pad"
                 style={styles.inputYear}
-                placeholderTextColor={theme.textMuted}
+                placeholderTextColor={theme.inputPlaceholder}
               />
 
               <Text style={styles.filterLabel}>Line</Text>
@@ -550,7 +544,7 @@ export default function SearchScreen() {
               <FilterSelectionHelp title={FILTER_HUNT_HELP[hunt].title} detail={FILTER_HUNT_HELP[hunt].detail} />
             </View>
           ) : null}
-        </View>
+        </Animated.View>
 
         {carsQuery.isError ? (
           <View style={styles.bannerErr}>
@@ -627,19 +621,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: theme.spaceLg,
   },
-  heroShellCompact: {
-    marginBottom: theme.spaceSm,
-  },
   heroWash: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: theme.radiusLg,
   },
   heroBlock: {
-    paddingVertical: theme.spaceSm,
-    paddingHorizontal: theme.spaceSm,
-  },
-  heroBlockTight: {
-    paddingVertical: theme.spaceXs,
+    paddingVertical: theme.spaceMd,
+    paddingHorizontal: theme.spaceMd,
   },
   filterPanel: {
     marginBottom: theme.spaceSm,
@@ -651,8 +639,12 @@ const styles = StyleSheet.create({
   },
   filterPanelOpen: {
     borderColor: theme.accentSecondary,
-    borderWidth: 1,
     backgroundColor: theme.bgRaised,
+    shadowColor: theme.accentSecondary,
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 12,
+    elevation: 3,
   },
   filterPanelHeader: {
     flexDirection: "row",
@@ -672,6 +664,14 @@ const styles = StyleSheet.create({
     gap: theme.spaceMd,
     minWidth: 0,
   },
+  filterHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  filterResetSpacer: {
+    minWidth: 68,
+    minHeight: theme.touchTargetMin,
+  },
   filterChevronBtn: {
     justifyContent: "center",
     alignItems: "center",
@@ -684,6 +684,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: theme.spaceSm,
     paddingHorizontal: theme.spaceSm,
+    minWidth: 68,
     minHeight: theme.touchTargetMin,
   },
   filterResetLabel: {
@@ -717,7 +718,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.9,
     textTransform: "uppercase",
-    color: theme.textMuted,
+    color: theme.textSecondary,
   },
   filterSummaryMeta: {
     marginTop: 3,
@@ -734,6 +735,7 @@ const styles = StyleSheet.create({
     fontSize: 26,
     marginTop: 4,
     color: theme.text,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
   },
   heroSub: {
     marginTop: 8,
@@ -743,7 +745,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   input: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: theme.borderStrong,
     borderRadius: theme.radiusMd,
     paddingHorizontal: theme.spaceMd,
@@ -754,7 +756,7 @@ const styles = StyleSheet.create({
     color: theme.text,
   },
   inputYear: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: theme.borderStrong,
     borderRadius: theme.radiusMd,
     paddingHorizontal: theme.spaceMd,
@@ -852,7 +854,12 @@ const styles = StyleSheet.create({
   },
   emptyWrap: { alignItems: "center", marginTop: theme.space2xl, gap: theme.spaceSm },
   emptyTitle: { fontSize: 18, fontWeight: "800", color: theme.text },
-  skeletonWrap: { marginTop: theme.spaceXl, gap: theme.spaceMd, paddingHorizontal: theme.spaceSm },
+  skeletonWrap: {
+    marginTop: theme.spaceXl,
+    gap: theme.spaceMd,
+    paddingHorizontal: theme.spaceSm,
+    minHeight: 280,
+  },
   skeletonLine: {
     height: 14,
     borderRadius: theme.radiusSm,

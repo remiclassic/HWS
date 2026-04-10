@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type TextStyle,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
@@ -31,6 +33,12 @@ const STATUSES: UserCarStatus[] = ["Owned", "Want", "Duplicate"];
 const CONDITIONS: UserCarCondition[] = ["Carded", "Loose", "Custom"];
 const THUMB = 96;
 
+/** Web: remove default focus ring so `notesInputFocused` border is visible. */
+const webNotesInputOutline = {
+  outlineWidth: 0,
+  outlineStyle: "none",
+} as unknown as TextStyle;
+
 export default function GarageItemEditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const rowId = typeof id === "string" ? id : "";
@@ -52,6 +60,7 @@ export default function GarageItemEditScreen() {
   const [condition, setCondition] = useState<UserCarCondition>("Carded");
   const [quantityStr, setQuantityStr] = useState("1");
   const [notes, setNotes] = useState("");
+  const [notesFocused, setNotesFocused] = useState(false);
 
   useEffect(() => {
     if (row) {
@@ -179,9 +188,12 @@ export default function GarageItemEditScreen() {
           </Pressable>
           {photos.map((p) => (
             <View key={p.id} style={styles.thumbWrap}>
-              <Image
+              <ExpoImage
                 source={{ uri: resolveApiAssetUrl(p.url) }}
                 style={styles.thumb}
+                contentFit="cover"
+                transition={200}
+                cachePolicy="memory-disk"
                 accessibilityLabel="Garage photo"
               />
               <Pressable
@@ -238,10 +250,18 @@ export default function GarageItemEditScreen() {
         <TextInput
           value={notes}
           onChangeText={setNotes}
-          style={[styles.input, styles.notesInput]}
+          style={[
+            styles.input,
+            styles.notesInput,
+            notesFocused && styles.notesInputFocused,
+            Platform.OS === "web" && webNotesInputOutline,
+          ]}
           placeholder="Purchase notes, location, trades…"
-          placeholderTextColor={theme.textMuted}
+          placeholderTextColor={theme.inputPlaceholder}
           multiline
+          onFocus={() => setNotesFocused(true)}
+          onBlur={() => setNotesFocused(false)}
+          selectionColor={theme.accentSecondary}
         />
       </ScrollView>
 
@@ -327,7 +347,20 @@ const styles = StyleSheet.create({
     color: theme.text,
     marginBottom: theme.spaceLg,
   },
-  notesInput: { minHeight: 100, textAlignVertical: "top" },
+  notesInput: {
+    minHeight: 100,
+    textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+  },
+  notesInputFocused: {
+    borderColor: theme.accentSecondary,
+    shadowColor: theme.accentSecondary,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 2,
+  },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: theme.border,

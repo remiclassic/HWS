@@ -1,7 +1,6 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
-  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -12,6 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -233,11 +233,13 @@ export default function CarDetailScreen() {
                 style={[styles.heroCarousel, { height: heroHeight }]}
               >
                 {images.map((im) => (
-                  <Image
+                  <ExpoImage
                     key={im.id}
                     source={{ uri: im.official_image_url }}
                     style={[styles.heroImgPage, { height: heroHeight, width: winW }]}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    transition={220}
+                    cachePolicy="memory-disk"
                   />
                 ))}
               </ScrollView>

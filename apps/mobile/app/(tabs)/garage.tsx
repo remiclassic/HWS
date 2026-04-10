@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo } from "react";
-import { Alert, FlatList, Image, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { Alert, FlatList, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import type { UserCarDto } from "@hotwheels/shared";
 import { ConfidenceBar } from "../../components/ui/ConfidenceBar";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { LineChip } from "../../components/ui/LineChip";
+import { RemoteImage } from "../../components/ui/RemoteImage";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
 import { deleteGarageItem, fetchGarage } from "../../lib/api";
@@ -35,7 +36,7 @@ const GarageCardRow = memo(function GarageCardRow({
   onDelete: (row: UserCarDto) => void;
 }) {
   const car = item.car;
-  const thumbUri = item.photos[0]?.url ?? car?.primary_image_url ?? null;
+  const thumbUri = item.photos?.[0]?.url ?? car?.primary_image_url ?? null;
   const st = statusStyle[item.status] ?? statusStyle["Owned"];
   const mainPress = usePressScale(true);
   const editPress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
@@ -59,16 +60,11 @@ const GarageCardRow = memo(function GarageCardRow({
       >
         <View style={styles.cardTop}>
           <View style={styles.cardTopLeft}>
-            {thumbUri ? (
-              <Image
-                source={{ uri: thumbUri }}
-                style={styles.cardThumb}
-                resizeMode="cover"
-                accessibilityIgnoresInvertColors
-              />
-            ) : (
-              <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} accessibilityElementsHidden />
-            )}
+            <RemoteImage
+              uri={thumbUri}
+              style={[styles.cardThumb, !thumbUri && styles.cardThumbPlaceholder]}
+              accessibilityLabel={thumbUri ? `${car?.casting_name ?? "Car"} photo` : undefined}
+            />
             <Text style={styles.cardTitle} numberOfLines={2}>
               {car?.casting_name ?? "Car"}
             </Text>

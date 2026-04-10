@@ -1,38 +1,40 @@
 import { useCallback, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
+import { IconBarcodeScan } from "../components/icons/AppIcons";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { setPendingBarcode } from "../lib/pendingScanStorage";
 import { theme } from "../lib/theme";
 
 export default function ScanScreen() {
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const handled = useRef(false);
   const [, setTick] = useState(0);
 
-  const onBarcodeScanned = useCallback(
-    (result: { data: string }) => {
-      if (handled.current) return;
-      handled.current = true;
-      void (async () => {
-        await setPendingBarcode(result.data);
-        if (router.canGoBack()) router.back();
-        else router.replace("/(tabs)");
-      })();
-    },
-    [],
-  );
+  const onBarcodeScanned = useCallback((result: { data: string }) => {
+    if (handled.current) return;
+    handled.current = true;
+    void (async () => {
+      await setPendingBarcode(result.data);
+      if (router.canGoBack()) router.back();
+      else router.replace("/(tabs)");
+    })();
+  }, []);
 
   if (Platform.OS === "web") {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="barcode-off" size={48} color={theme.textMuted} />
-        <Text style={styles.title}>Scanner not on web</Text>
-        <Text style={styles.sub}>Use the Spotter tab and type a SKU or casting name, or run the app on a device.</Text>
-        <Pressable style={styles.btn} onPress={() => router.back()}>
-          <Text style={styles.btnTxt}>Go back</Text>
-        </Pressable>
+        <IconBarcodeScan color={theme.accentSecondary} size={56} />
+        <Text style={styles.title}>Scanner needs a device</Text>
+        <Text style={styles.sub}>
+          On web, search from the Spotter tab by casting name or SKU. Use the mobile app to scan barcodes in
+          the aisle.
+        </Text>
+        <PrimaryButton label="Go back" onPress={() => router.back()} />
       </View>
     );
   }
@@ -40,6 +42,7 @@ export default function ScanScreen() {
   if (!permission) {
     return (
       <View style={styles.center}>
+        <ActivityIndicator color={theme.accent} size="large" />
         <Text style={styles.muted}>Checking camera…</Text>
       </View>
     );
@@ -48,23 +51,23 @@ export default function ScanScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="camera-outline" size={44} color={theme.accent} />
+        <IconBarcodeScan color={theme.accent} size={52} />
         <Text style={styles.title}>Camera access</Text>
         <Text style={styles.sub}>We only use the camera to read product barcodes for quick lookup.</Text>
-        <Pressable
-          style={styles.btn}
-          onPress={() => {
-            void requestPermission().then(() => setTick((t) => t + 1));
-          }}
-        >
-          <Text style={styles.btnTxt}>Allow camera</Text>
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={() => router.back()}>
-          <Text style={styles.btnGhostTxt}>Cancel</Text>
-        </Pressable>
+        <View style={styles.btnStack}>
+          <PrimaryButton
+            label="Allow camera"
+            onPress={() => {
+              void requestPermission().then(() => setTick((t) => t + 1));
+            }}
+          />
+          <PrimaryButton label="Cancel" variant="ghost" onPress={() => router.back()} />
+        </View>
       </View>
     );
   }
+
+  const bottomPad = Math.max(insets.bottom + theme.spaceMd, theme.spaceXl);
 
   return (
     <View style={styles.root}>
@@ -77,10 +80,27 @@ export default function ScanScreen() {
         onBarcodeScanned={onBarcodeScanned}
       />
       <View style={styles.overlay} pointerEvents="box-none">
-        <Text style={styles.hint}>Point at a UPC or QR on the card or case</Text>
-        <Pressable style={styles.closeFab} onPress={() => router.back()} accessibilityLabel="Close scanner">
-          <MaterialCommunityIcons name="close" size={28} color={theme.text} />
-        </Pressable>
+        <View style={[styles.overlayTop, { paddingTop: insets.top + theme.spaceSm }]}>
+          <Pressable
+            style={({ pressed }) => [styles.closeFab, pressed && styles.closeFabPressed]}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              router.back();
+            }}
+            accessibilityLabel="Close scanner"
+            accessibilityRole="button"
+          >
+            <Text style={styles.closeGlyph}>✕</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.targetStage} pointerEvents="none">
+          <View style={styles.scanTarget} />
+        </View>
+
+        <View style={[styles.overlayBottom, { paddingBottom: bottomPad }]}>
+          <Text style={styles.hint}>Align the UPC or QR inside the frame</Text>
+        </View>
       </View>
     </View>
   );
@@ -91,29 +111,59 @@ const styles = StyleSheet.create({
   camera: { flex: 1 },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: "flex-end",
-    padding: theme.spaceLg,
+    justifyContent: "space-between",
+  },
+  overlayTop: {
+    paddingHorizontal: theme.spaceLg,
+    alignItems: "flex-end",
+  },
+  overlayBottom: {
+    paddingHorizontal: theme.spaceLg,
+  },
+  targetStage: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: theme.spaceLg,
+  },
+  scanTarget: {
+    width: "100%",
+    maxWidth: 340,
+    aspectRatio: 1.65,
+    borderRadius: theme.radiusLg,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "transparent",
   },
   hint: {
     color: "#fff",
     fontSize: 15,
     fontWeight: "700",
     textAlign: "center",
-    marginBottom: theme.space2xl,
+    lineHeight: 21,
     textShadowColor: "rgba(0,0,0,0.75)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
   closeFab: {
-    position: "absolute",
-    top: theme.spaceLg,
-    right: theme.spaceLg,
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    backgroundColor: "rgba(7,20,34,0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  closeFabPressed: {
+    backgroundColor: "rgba(7,20,34,0.88)",
+    transform: [{ scale: 0.96 }],
+  },
+  closeGlyph: {
+    color: theme.text,
+    fontSize: 20,
+    fontWeight: "600",
+    marginTop: -1,
   },
   center: {
     flex: 1,
@@ -130,16 +180,13 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: "center",
     fontWeight: "500",
+    maxWidth: 340,
   },
-  muted: { color: theme.textMuted },
-  btn: {
-    marginTop: theme.spaceMd,
-    backgroundColor: theme.accent,
-    paddingVertical: 14,
-    paddingHorizontal: theme.spaceXl,
-    borderRadius: theme.radiusMd,
+  muted: { color: theme.textMuted, fontWeight: "600" },
+  btnStack: {
+    marginTop: theme.spaceSm,
+    width: "100%",
+    maxWidth: 320,
+    gap: theme.spaceSm,
   },
-  btnTxt: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  btnGhost: { padding: theme.spaceMd },
-  btnGhostTxt: { color: theme.accent, fontWeight: "700", fontSize: 16 },
 });

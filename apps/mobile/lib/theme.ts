@@ -118,6 +118,8 @@ export const theme = {
   text: packagingText.primary,
   textSecondary: packagingText.secondary,
   textMuted: packagingText.muted,
+  /** Search / form placeholders on dark surfaces — clearer than `textMuted` */
+  inputPlaceholder: "#9EB2C8",
 
   accent: brand.primary,
   accentHover: brand.primaryHover,
