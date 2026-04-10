@@ -147,6 +147,7 @@ export default function GarageScreen() {
     },
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
       if (res.queued) {
         Alert.alert("Offline", "Remove queued. It will apply when you’re back online.");
       }
@@ -190,15 +191,26 @@ export default function GarageScreen() {
               ? "Save cars from Spotter. Lists cache on this device after a successful sync; export from the header to keep a backup."
               : `${count} saved item${count === 1 ? "" : "s"} · tap a row for full reference`}
           </Text>
-          <Pressable
-            onPress={() => router.push("/garage-insights")}
-            style={({ pressed }) => [styles.insightsBtn, pressed && styles.insightsBtnPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Open garage insights"
-          >
-            <MaterialCommunityIcons name="chart-box-outline" size={20} color={theme.accent} />
-            <Text style={styles.insightsBtnTxt}>Insights</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={() => router.push("/garage-insights")}
+              style={({ pressed }) => [styles.insightsBtn, pressed && styles.insightsBtnPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Open garage insights"
+            >
+              <MaterialCommunityIcons name="chart-box-outline" size={20} color={theme.accent} />
+              <Text style={styles.insightsBtnTxt}>Insights</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/collector-progress")}
+              style={({ pressed }) => [styles.insightsBtn, pressed && styles.insightsBtnPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Open collector progress"
+            >
+              <MaterialCommunityIcons name="trophy-outline" size={20} color={theme.accent} />
+              <Text style={styles.insightsBtnTxt}>Progress</Text>
+            </Pressable>
+          </View>
         </View>
         <View style={styles.countBadge}>
           <Text style={styles.countTxt}>{count}</Text>
@@ -276,12 +288,17 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sub: { marginTop: 8, fontSize: 15, lineHeight: 22, color: theme.textSecondary, fontWeight: "500" },
+  headerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spaceSm,
+    marginTop: theme.spaceMd,
+    alignSelf: "flex-start",
+  },
   insightsBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    alignSelf: "flex-start",
-    marginTop: theme.spaceMd,
     paddingVertical: 10,
     paddingHorizontal: theme.spaceMd,
     borderRadius: theme.radiusMd,
@@ -348,14 +365,15 @@ const styles = StyleSheet.create({
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: theme.border,
     backgroundColor: theme.bgSubtle,
-    justifyContent: "center",
+    width: theme.touchTargetMin,
+    alignItems: "stretch",
   },
   actionBtn: {
+    flex: 1,
+    minHeight: theme.touchTargetMin - 4,
     justifyContent: "center",
     alignItems: "center",
-    minWidth: theme.touchTargetMin,
-    minHeight: theme.touchTargetMin - 4,
-    paddingHorizontal: theme.spaceSm,
+    width: "100%",
   },
   actionBtnDestructive: {
     borderTopWidth: StyleSheet.hairlineWidth,

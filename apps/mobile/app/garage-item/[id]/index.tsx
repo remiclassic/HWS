@@ -99,6 +99,7 @@ export default function GarageItemEditScreen() {
     },
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
         Alert.alert("Offline", "Update queued for sync.");
@@ -126,6 +127,7 @@ export default function GarageItemEditScreen() {
     },
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
         Alert.alert("Offline", "Photo removal queued for sync.");

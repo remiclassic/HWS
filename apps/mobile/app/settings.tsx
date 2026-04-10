@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Card } from "../components/ui/Card";
 import {
+  fetchGamification,
   fetchMeSettings,
+  patchLeaderboardProfile,
   patchNotificationPreferences,
   registerPushToken,
   unregisterPushTokens,
@@ -15,11 +27,21 @@ import { theme, themedScrollIndicatorProps } from "../lib/theme";
 export default function SettingsScreen() {
   const qc = useQueryClient();
   const settingsQ = useQuery({ queryKey: ["me-settings"] as const, queryFn: fetchMeSettings });
+  const gamificationQ = useQuery({ queryKey: ["gamification"] as const, queryFn: fetchGamification });
   const [wantPush, setWantPush] = useState(true);
+  const [displayName, setDisplayName] = useState("");
+  const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
 
   useEffect(() => {
     if (settingsQ.data) setWantPush(settingsQ.data.notify_want_updates);
   }, [settingsQ.data]);
+
+  useEffect(() => {
+    if (gamificationQ.data) {
+      setDisplayName(gamificationQ.data.display_name ?? "");
+      setLeaderboardOptIn(gamificationQ.data.leaderboard_opt_in);
+    }
+  }, [gamificationQ.data]);
 
   const savePrefs = useMutation({
     mutationFn: async (next: boolean) => {
@@ -51,6 +73,22 @@ export default function SettingsScreen() {
     [savePrefs],
   );
 
+  const saveLeaderboard = useMutation({
+    mutationFn: patchLeaderboardProfile,
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
+      await qc.invalidateQueries({ queryKey: ["leaderboard"] });
+    },
+    onError: (e) => Alert.alert("Could not save leaderboard settings", String(e)),
+  });
+
+  const onSaveLeaderboard = useCallback(() => {
+    saveLeaderboard.mutate({
+      display_name: displayName.trim() ? displayName.trim().slice(0, 32) : null,
+      leaderboard_opt_in: leaderboardOptIn,
+    });
+  }, [displayName, leaderboardOptIn, saveLeaderboard]);
+
   return (
     <ScrollView
       {...themedScrollIndicatorProps}
@@ -59,6 +97,64 @@ export default function SettingsScreen() {
     >
       <Text style={styles.kicker}>Preferences</Text>
       <Text style={styles.title}>Settings</Text>
+
+      <Pressable
+        onPress={() => router.push("/collector-progress")}
+        style={styles.progressLink}
+        accessibilityRole="button"
+        accessibilityLabel="Open collector progress"
+      >
+        <Text style={styles.progressLinkTxt}>Collector progress & achievements</Text>
+      </Pressable>
+
+      <Card title="Leaderboard & public profile" style={styles.card}>
+        <Text style={styles.hint}>
+          Opt in to appear on the public leaderboard. We show a display name, level, and XP — not your email
+          or device id. Turning this off removes you from the board and clears your shareable link.
+        </Text>
+        <Text style={styles.inputLabel}>Display name</Text>
+        <TextInput
+          value={displayName}
+          onChangeText={setDisplayName}
+          placeholder="e.g. Trackside Tom"
+          placeholderTextColor={theme.textMuted}
+          maxLength={32}
+          style={styles.textInput}
+          editable={!saveLeaderboard.isPending && !gamificationQ.isLoading}
+        />
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>Show on leaderboard</Text>
+            <Text style={styles.rowSub}>
+              {gamificationQ.data?.leaderboard_slug
+                ? `Slug: ${gamificationQ.data.leaderboard_slug}`
+                : "A random slug is created when you opt in."}
+            </Text>
+          </View>
+          <Switch
+            value={leaderboardOptIn}
+            onValueChange={setLeaderboardOptIn}
+            disabled={saveLeaderboard.isPending || gamificationQ.isLoading}
+            trackColor={{ false: theme.border, true: theme.accentMuted }}
+            thumbColor={leaderboardOptIn ? theme.accent : theme.bgSubtle}
+          />
+        </View>
+        <Pressable
+          onPress={onSaveLeaderboard}
+          disabled={saveLeaderboard.isPending || gamificationQ.isLoading}
+          style={({ pressed }) => [
+            styles.saveLbBtn,
+            (saveLeaderboard.isPending || gamificationQ.isLoading) && styles.saveLbBtnDisabled,
+            pressed && !saveLeaderboard.isPending && styles.saveLbBtnPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Save leaderboard settings"
+        >
+          <Text style={styles.saveLbBtnTxt}>
+            {saveLeaderboard.isPending ? "Saving…" : "Save leaderboard settings"}
+          </Text>
+        </Pressable>
+      </Card>
 
       <Card title="Want list alerts" style={styles.card}>
         <Text style={styles.hint}>
@@ -101,7 +197,40 @@ const styles = StyleSheet.create({
   content: { padding: theme.spaceLg, paddingBottom: theme.space3xl },
   kicker: { ...theme.typeKicker, color: theme.accent },
   title: { ...theme.typeTitleLg, fontSize: 26, color: theme.text, marginTop: 4 },
+  progressLink: {
+    marginTop: theme.spaceMd,
+    paddingVertical: theme.spaceSm,
+  },
+  progressLinkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
   card: { marginTop: theme.spaceLg },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.textMuted,
+    marginBottom: 6,
+  },
+  textInput: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    borderRadius: theme.radiusMd,
+    paddingHorizontal: theme.spaceMd,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.text,
+    backgroundColor: theme.bgSubtle,
+    marginBottom: theme.spaceMd,
+  },
+  saveLbBtn: {
+    marginTop: theme.spaceMd,
+    paddingVertical: 14,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.accent,
+    alignItems: "center",
+  },
+  saveLbBtnPressed: { opacity: 0.92 },
+  saveLbBtnDisabled: { opacity: 0.55 },
+  saveLbBtnTxt: { fontSize: 16, fontWeight: "800", color: theme.bg },
   hint: {
     fontSize: 14,
     color: theme.textMuted,

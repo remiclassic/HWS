@@ -1,10 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import {
+  meGamificationResponseSchema,
   meSettingsResponseSchema,
+  patchLeaderboardProfileBodySchema,
   patchNotificationPrefsBodySchema,
   registerPushTokenBodySchema,
 } from "@hotwheels/shared";
 import { requireUser } from "../lib/httpAuth.js";
+import {
+  getMeGamification,
+  patchLeaderboardProfile,
+  recordBarcodeScan,
+} from "../services/gamification.service.js";
 import {
   deleteAllPushTokensForUser,
   getMeSettings,
@@ -49,6 +56,33 @@ export async function registerMeRoutes(app: FastifyInstance) {
     const userId = await requireUser(req, reply);
     if (!userId) return;
     await deleteAllPushTokensForUser(userId);
+    reply.status(204).send();
+  });
+
+  app.get("/me/gamification", async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const body = meGamificationResponseSchema.parse(await getMeGamification(userId));
+    reply.send(body);
+  });
+
+  app.patch("/me/leaderboard-profile", async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const parsed = patchLeaderboardProfileBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.status(400).send({ error: parsed.error.flatten() });
+      return;
+    }
+    await patchLeaderboardProfile(userId, parsed.data);
+    const body = meGamificationResponseSchema.parse(await getMeGamification(userId));
+    reply.send(body);
+  });
+
+  app.post("/me/gamification/record-scan", async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    await recordBarcodeScan(userId);
     reply.status(204).send();
   });
 }

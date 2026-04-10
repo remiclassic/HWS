@@ -10,6 +10,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCarRoutes } from "./routes/cars.js";
 import { registerGarageRoutes } from "./routes/garage.js";
 import { registerIngestionRoutes } from "./routes/ingestion.js";
+import { registerLeaderboardRoutes } from "./routes/leaderboard.js";
 import { registerMeRoutes } from "./routes/me.js";
 
 export async function createApp(): Promise<FastifyInstance> {
@@ -42,6 +43,7 @@ export async function createApp(): Promise<FastifyInstance> {
   await registerCarRoutes(app);
   await registerGarageRoutes(app);
   await registerMeRoutes(app);
+  await registerLeaderboardRoutes(app);
   await registerIngestionRoutes(app);
 
   app.get("/health", async () => ({ ok: true }));

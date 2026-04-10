@@ -10,14 +10,20 @@ import { IconShareExport, IconSpotterTab, IconGarageTab } from "../../components
 import { fetchGarage } from "../../lib/api";
 import { theme } from "../../lib/theme";
 
+const headerActionsRowStyle = {
+  flexDirection: "row" as const,
+  alignItems: "center" as const,
+  gap: 14,
+  paddingRight: 18,
+};
+
 function SettingsHeaderButton() {
   return (
     <Pressable
       onPress={() => router.push("/settings")}
-      hitSlop={12}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       accessibilityRole="button"
       accessibilityLabel="Open settings"
-      style={{ marginRight: 4 }}
     >
       <MaterialCommunityIcons name="cog-outline" size={24} color={theme.accent} />
     </Pressable>
@@ -42,10 +48,9 @@ function GarageExportHeaderButton() {
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={12}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       accessibilityRole="button"
       accessibilityLabel="Export garage as JSON"
-      style={{ marginRight: 4 }}
     >
       <IconShareExport color={theme.accent} size={24} />
     </Pressable>
@@ -87,7 +92,11 @@ export default function TabLayout() {
           title: "Spotter",
           tabBarLabel: "Browse",
           tabBarIcon: ({ color, size }) => <IconSpotterTab color={color} size={size ?? 24} />,
-          headerRight: () => <SettingsHeaderButton />,
+          headerRight: () => (
+            <View style={headerActionsRowStyle}>
+              <SettingsHeaderButton />
+            </View>
+          ),
         }}
       />
       <Tabs.Screen
@@ -97,7 +106,7 @@ export default function TabLayout() {
           tabBarLabel: "Garage",
           tabBarIcon: ({ color, size }) => <IconGarageTab color={color} size={size ?? 24} />,
           headerRight: () => (
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={headerActionsRowStyle}>
               <GarageExportHeaderButton />
               <SettingsHeaderButton />
             </View>

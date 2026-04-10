@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { IconBarcodeScan } from "../components/icons/AppIcons";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
+import { recordGamificationScan } from "../lib/api";
+import { queryClient } from "../lib/queryClient";
 import { setPendingBarcode } from "../lib/pendingScanStorage";
 import { theme } from "../lib/theme";
 
@@ -29,6 +31,9 @@ export default function ScanScreen() {
     handled.current = true;
     void (async () => {
       await setPendingBarcode(result.data);
+      void recordGamificationScan()
+        .then(() => queryClient.invalidateQueries({ queryKey: ["gamification"] }))
+        .catch(() => {});
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)");
     })();
@@ -40,6 +45,9 @@ export default function ScanScreen() {
       if (!code) return;
       void (async () => {
         await setPendingBarcode(code);
+        void recordGamificationScan()
+          .then(() => queryClient.invalidateQueries({ queryKey: ["gamification"] }))
+          .catch(() => {});
         if (router.canGoBack()) router.back();
         else router.replace("/(tabs)");
       })();

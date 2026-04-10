@@ -11,7 +11,10 @@ export function useGarageQueueProcessor(): void {
   const flush = useCallback(async () => {
     if (!(await getIsOnline())) return;
     const n = await processGarageQueue();
-    if (n > 0) await qc.invalidateQueries({ queryKey: ["garage"] });
+    if (n > 0) {
+      await qc.invalidateQueries({ queryKey: ["garage"] });
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
+    }
   }, [qc]);
 
   useEffect(() => {

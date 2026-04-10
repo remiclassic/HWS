@@ -176,6 +176,7 @@ export default function CarDetailScreen() {
     },
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
         Alert.alert("Offline", "Saved to sync queue. We’ll send it when you’re online.");

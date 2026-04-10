@@ -1,9 +1,11 @@
 import {
   boolean,
+  date,
   index,
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -30,6 +32,9 @@ export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   notifyWantListUpdates: boolean("notify_want_list_updates").notNull().default(true),
+  displayName: varchar("display_name", { length: 32 }),
+  leaderboardOptIn: boolean("leaderboard_opt_in").notNull().default(false),
+  leaderboardSlug: varchar("leaderboard_slug", { length: 12 }),
 });
 
 export const userPushTokens = pgTable(
@@ -176,4 +181,30 @@ export const notificationSendLog = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index("notification_send_log_user_created_idx").on(table.userId, table.createdAt)],
+);
+
+export const userGamification = pgTable("user_gamification", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  totalXp: integer("total_xp").notNull().default(0),
+  lastActiveDate: date("last_active_date", { mode: "string" }),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  barcodeScanCount: integer("barcode_scan_count").notNull().default(0),
+});
+
+export const userAchievements = pgTable(
+  "user_achievements",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    achievementId: varchar("achievement_id", { length: 64 }).notNull(),
+    unlockedAt: timestamp("unlocked_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.achievementId] }),
+    index("user_achievements_user_id_idx").on(table.userId),
+  ],
 );

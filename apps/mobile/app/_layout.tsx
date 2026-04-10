@@ -65,7 +65,7 @@ export default function RootLayout() {
       dehydrateOptions: {
         shouldDehydrateQuery: (q: { queryKey: readonly unknown[] }) => {
           const k = q.queryKey[0];
-          return k === "car" || k === "garage" || k === "th";
+          return k === "car" || k === "garage" || k === "th" || k === "gamification";
         },
       },
     }),
@@ -101,6 +101,9 @@ export default function RootLayout() {
               <Stack.Screen name="garage-item/[id]" options={{ title: "Edit garage item" }} />
               <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
               <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
+              <Stack.Screen name="collector-progress" options={{ title: "Collector progress" }} />
+              <Stack.Screen name="leaderboard" options={{ title: "Leaderboard" }} />
+              <Stack.Screen name="collector/[slug]" options={{ title: "Collector" }} />
               <Stack.Screen name="settings" options={{ title: "Settings" }} />
             </Stack>
           </GarageSyncBootstrap>

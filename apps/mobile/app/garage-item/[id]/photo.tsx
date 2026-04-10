@@ -57,6 +57,7 @@ export default function GarageItemPhotoScreen() {
     },
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
+      await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
         Alert.alert("Offline", "Photo upload queued for when you’re online.");

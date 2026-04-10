@@ -14,11 +14,16 @@ import {
   listGarage,
   patchUserCar,
 } from "../services/garage.service.js";
+import {
+  recordGamificationActivity,
+  syncAchievementsAndXp,
+} from "../services/gamification.service.js";
 
 export async function registerGarageRoutes(app: FastifyInstance) {
   app.get("/me/garage", async (req, reply) => {
     const userId = await requireUser(req, reply);
     if (!userId) return;
+    await recordGamificationActivity(userId);
     const items = await listGarage(userId);
     reply.send({ items: items.map((i) => userCarSchema.parse(i)) });
   });
@@ -34,6 +39,8 @@ export async function registerGarageRoutes(app: FastifyInstance) {
     }
     try {
       const created = await createUserCar(userId, parsed.data);
+      await recordGamificationActivity(userId);
+      await syncAchievementsAndXp(userId);
       reply.status(201).send(userCarSchema.parse(created));
     } catch (e) {
       if (e instanceof Error && e.message === "CAR_NOT_FOUND") {
@@ -58,6 +65,8 @@ export async function registerGarageRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: "Not found" });
       return;
     }
+    await recordGamificationActivity(userId);
+    await syncAchievementsAndXp(userId);
     reply.send(userCarSchema.parse(updated));
   });
 
@@ -70,6 +79,8 @@ export async function registerGarageRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: "Not found" });
       return;
     }
+    await recordGamificationActivity(userId);
+    await syncAchievementsAndXp(userId);
     reply.status(204).send();
   });
 
@@ -95,6 +106,8 @@ export async function registerGarageRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: "Not found" });
       return;
     }
+    await recordGamificationActivity(userId);
+    await syncAchievementsAndXp(userId);
     reply.status(201).send(garagePhotoUploadResponseSchema.parse({ photo: dto }));
   });
 
@@ -107,6 +120,8 @@ export async function registerGarageRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: "Not found" });
       return;
     }
+    await recordGamificationActivity(userId);
+    await syncAchievementsAndXp(userId);
     reply.status(204).send();
   });
 }

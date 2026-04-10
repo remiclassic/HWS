@@ -4,9 +4,13 @@ import type {
   CarsQuery,
   CreateCarDataReportBody,
   CreateUserCarBody,
+  LeaderboardResponse,
+  MeGamificationResponse,
   MeSettingsResponse,
+  PatchLeaderboardProfileBody,
   PatchNotificationPrefsBody,
   PatchUserCarBody,
+  PublicCollectorProfile,
   RegisterPushTokenBody,
   UserCarDto,
   UserCarPhotoDto,
@@ -16,11 +20,16 @@ import {
   carDetailSchema,
   carsListResponseSchema,
   garagePhotoUploadResponseSchema,
+  leaderboardResponseSchema,
+  meGamificationResponseSchema,
   meSettingsResponseSchema,
+  publicCollectorProfileSchema,
   userCarSchema,
 } from "@hotwheels/shared";
 import { getApiBase } from "./config";
 import { getToken } from "./authStorage";
+
+const REQUEST_TIMEOUT_MS = 25_000;
 
 async function request<T>(
   path: string,
@@ -44,10 +53,23 @@ async function request<T>(
     const t = await getToken();
     if (t) headers["Authorization"] = `Bearer ${t}`;
   }
-  const res = await fetch(url.toString(), {
-    ...init,
-    headers,
-  });
+  const timeout = new AbortController();
+  const tid = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      ...init,
+      headers,
+      signal: timeout.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(`Request timed out (${REQUEST_TIMEOUT_MS / 1000}s) — check API is running and EXPO_PUBLIC_API_URL`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(tid);
+  }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
@@ -183,5 +205,34 @@ export async function registerPushToken(body: RegisterPushTokenBody): Promise<vo
 
 export async function unregisterPushTokens(): Promise<void> {
   await request<unknown>("/me/push-token", { method: "DELETE" });
+}
+
+export async function fetchGamification(): Promise<MeGamificationResponse> {
+  const raw = await request<unknown>("/me/gamification");
+  return meGamificationResponseSchema.parse(raw);
+}
+
+export async function patchLeaderboardProfile(
+  body: PatchLeaderboardProfileBody,
+): Promise<MeGamificationResponse> {
+  const raw = await request<unknown>("/me/leaderboard-profile", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  return meGamificationResponseSchema.parse(raw);
+}
+
+export async function recordGamificationScan(): Promise<void> {
+  await request<unknown>("/me/gamification/record-scan", { method: "POST" });
+}
+
+export async function fetchLeaderboard(limit = 50): Promise<LeaderboardResponse> {
+  const raw = await request<unknown>("/leaderboard", { params: { limit } });
+  return leaderboardResponseSchema.parse(raw);
+}
+
+export async function fetchPublicCollectorProfile(slug: string): Promise<PublicCollectorProfile> {
+  const raw = await request<unknown>(`/collectors/${encodeURIComponent(slug)}`, {}, true);
+  return publicCollectorProfileSchema.parse(raw);
 }
 
