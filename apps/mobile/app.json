@@ -16,7 +16,9 @@
           "cameraPermission": "Allow Hot Wheels Spotter to scan barcodes and take photos of cars in your garage.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "@sentry/react-native",
+      "expo-notifications"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -32,7 +34,18 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "hotwheels-spotter"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

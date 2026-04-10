@@ -1,7 +1,8 @@
 import { memo, useCallback, useMemo } from "react";
-import { Alert, FlatList, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { Alert, FlatList, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { router } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { IconCloudOff, IconPackage, IconPencil, IconTrash } from "../../components/icons/AppIcons";
@@ -12,7 +13,11 @@ import { LineChip } from "../../components/ui/LineChip";
 import { RemoteImage } from "../../components/ui/RemoteImage";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
+import { OfflineBanner } from "../../components/ui/OfflineBanner";
+import { useGarageQueueDepth } from "../../hooks/useGarageQueueDepth";
 import { deleteGarageItem, fetchGarage } from "../../lib/api";
+import { enqueueGarageOp, isTransientNetworkError } from "../../lib/garageMutationQueue";
+import { getIsOnline, useOnline } from "../../lib/network";
 import { motion } from "../../lib/motion";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
 
@@ -117,6 +122,8 @@ export default function GarageScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isWide, contentMaxWidth } = useResponsiveLayout();
   const listBottomPad = tabBarHeight + LIST_BELOW_TAB_EXTRA;
+  const online = useOnline();
+  const pendingGarage = useGarageQueueDepth();
 
   const qc = useQueryClient();
   const garageQuery = useQuery({
@@ -125,8 +132,26 @@ export default function GarageScreen() {
   });
 
   const del = useMutation({
-    mutationFn: (id: string) => deleteGarageItem(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["garage"] }),
+    mutationFn: async (id: string) => {
+      try {
+        await deleteGarageItem(id);
+        return { queued: false as const };
+      } catch (e) {
+        const likelyOffline = !(await getIsOnline());
+        if (likelyOffline || isTransientNetworkError(e)) {
+          await enqueueGarageOp({ v: 1, kind: "delete", id });
+          return { queued: true as const };
+        }
+        throw e;
+      }
+    },
+    onSuccess: async (res) => {
+      await qc.invalidateQueries({ queryKey: ["garage"] });
+      if (res.queued) {
+        Alert.alert("Offline", "Remove queued. It will apply when you’re back online.");
+      }
+    },
+    onError: (e) => Alert.alert("Could not remove", String(e)),
   });
 
   const onDelete = useCallback(
@@ -165,6 +190,15 @@ export default function GarageScreen() {
               ? "Save cars from Spotter. Lists cache on this device after a successful sync; export from the header to keep a backup."
               : `${count} saved item${count === 1 ? "" : "s"} · tap a row for full reference`}
           </Text>
+          <Pressable
+            onPress={() => router.push("/garage-insights")}
+            style={({ pressed }) => [styles.insightsBtn, pressed && styles.insightsBtnPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Open garage insights"
+          >
+            <MaterialCommunityIcons name="chart-box-outline" size={20} color={theme.accent} />
+            <Text style={styles.insightsBtnTxt}>Insights</Text>
+          </Pressable>
         </View>
         <View style={styles.countBadge}>
           <Text style={styles.countTxt}>{count}</Text>
@@ -183,6 +217,7 @@ export default function GarageScreen() {
 
   return (
     <View style={styles.screen}>
+      <OfflineBanner online={online} pendingGarageOps={pendingGarage} />
       {garageQuery.isError ? (
         <View style={[styles.bannerErr, wideColumnStyle]}>
           <IconCloudOff color={theme.danger} size={20} />
@@ -241,6 +276,21 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sub: { marginTop: 8, fontSize: 15, lineHeight: 22, color: theme.textSecondary, fontWeight: "500" },
+  insightsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    marginTop: theme.spaceMd,
+    paddingVertical: 10,
+    paddingHorizontal: theme.spaceMd,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  insightsBtnPressed: { opacity: 0.85 },
+  insightsBtnTxt: { fontSize: 15, fontWeight: "800", color: theme.accent },
   countBadge: {
     minWidth: 48,
     height: 48,

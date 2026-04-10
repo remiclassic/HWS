@@ -1,5 +1,7 @@
 import { useCallback } from "react";
-import { Alert, Pressable, Share } from "react-native";
+import { Alert, Pressable, Share, View } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { Tabs } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -7,6 +9,20 @@ import { AppTabBar } from "../../components/navigation/AppTabBar";
 import { IconShareExport, IconSpotterTab, IconGarageTab } from "../../components/icons/AppIcons";
 import { fetchGarage } from "../../lib/api";
 import { theme } from "../../lib/theme";
+
+function SettingsHeaderButton() {
+  return (
+    <Pressable
+      onPress={() => router.push("/settings")}
+      hitSlop={12}
+      accessibilityRole="button"
+      accessibilityLabel="Open settings"
+      style={{ marginRight: 4 }}
+    >
+      <MaterialCommunityIcons name="cog-outline" size={24} color={theme.accent} />
+    </Pressable>
+  );
+}
 
 function GarageExportHeaderButton() {
   const garageQuery = useQuery({ queryKey: ["garage"] as const, queryFn: fetchGarage });
@@ -71,6 +87,7 @@ export default function TabLayout() {
           title: "Spotter",
           tabBarLabel: "Browse",
           tabBarIcon: ({ color, size }) => <IconSpotterTab color={color} size={size ?? 24} />,
+          headerRight: () => <SettingsHeaderButton />,
         }}
       />
       <Tabs.Screen
@@ -79,7 +96,12 @@ export default function TabLayout() {
           title: "My Garage",
           tabBarLabel: "Garage",
           tabBarIcon: ({ color, size }) => <IconGarageTab color={color} size={size ?? 24} />,
-          headerRight: () => <GarageExportHeaderButton />,
+          headerRight: () => (
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <GarageExportHeaderButton />
+              <SettingsHeaderButton />
+            </View>
+          ),
         }}
       />
     </Tabs>

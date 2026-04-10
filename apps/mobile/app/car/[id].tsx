@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,7 +29,11 @@ import { PrimaryButton } from "../../components/ui/PrimaryButton";
 import { SourcePill } from "../../components/ui/SourcePill";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
-import { addToGarage, fetchCar } from "../../lib/api";
+import { addToGarage, fetchCar, submitCarDataReport } from "../../lib/api";
+import { enqueueGarageOp, isTransientNetworkError } from "../../lib/garageMutationQueue";
+import { getIsOnline, useOnline } from "../../lib/network";
+import { OfflineBanner } from "../../components/ui/OfflineBanner";
+import { useGarageQueueDepth } from "../../hooks/useGarageQueueDepth";
 import { garageConditionChipTint, garageStatusChipTint } from "../../lib/garageFormChips";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
 
@@ -131,11 +136,16 @@ export default function CarDetailScreen() {
     [winW, isWide],
   );
   const qc = useQueryClient();
+  const online = useOnline();
+  const pendingGarage = useGarageQueueDepth();
   const [showSources, setShowSources] = useState(true);
   const [status, setStatus] = useState<UserCarStatus>("Owned");
   const [condition, setCondition] = useState<UserCarCondition>("Carded");
   const [garageNotes, setGarageNotes] = useState("");
   const [quantityStr, setQuantityStr] = useState("1");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportMessage, setReportMessage] = useState("");
+  const [reportFieldPath, setReportFieldPath] = useState("");
 
   const q = useQuery({
     queryKey: ["car", carId] as const,
@@ -144,20 +154,52 @@ export default function CarDetailScreen() {
   });
 
   const add = useMutation({
-    mutationFn: () =>
-      addToGarage({
+    mutationFn: async () => {
+      const payload = {
         car_id: carId,
         status,
         condition,
         quantity: Math.max(1, Math.min(999, parseInt(quantityStr, 10) || 1)),
         notes: garageNotes.trim() ? garageNotes.trim() : null,
-      }),
-    onSuccess: async () => {
-      qc.invalidateQueries({ queryKey: ["garage"] });
+      };
+      try {
+        await addToGarage(payload);
+        return { queued: false as const };
+      } catch (e) {
+        const likelyOffline = !(await getIsOnline());
+        if (likelyOffline || isTransientNetworkError(e)) {
+          await enqueueGarageOp({ v: 1, kind: "add", payload });
+          return { queued: true as const };
+        }
+        throw e;
+      }
+    },
+    onSuccess: async (res) => {
+      await qc.invalidateQueries({ queryKey: ["garage"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Saved", "Saved to My Garage");
+      if (res.queued) {
+        Alert.alert("Offline", "Saved to sync queue. We’ll send it when you’re online.");
+      } else {
+        Alert.alert("Saved", "Saved to My Garage");
+      }
     },
     onError: (e) => Alert.alert("Could not save", String(e)),
+  });
+
+  const report = useMutation({
+    mutationFn: () =>
+      submitCarDataReport(carId, {
+        message: reportMessage.trim(),
+        field_path: reportFieldPath.trim() ? reportFieldPath.trim() : null,
+      }),
+    onSuccess: async () => {
+      setReportOpen(false);
+      setReportMessage("");
+      setReportFieldPath("");
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Thanks", "Your report was sent. We use these to improve the catalog.");
+    },
+    onError: (e) => Alert.alert("Could not send report", String(e)),
   });
 
   const data = q.data;
@@ -216,6 +258,7 @@ export default function CarDetailScreen() {
 
   return (
     <View style={styles.root}>
+      <OfflineBanner online={online} pendingGarageOps={pendingGarage} />
       <ScrollView
         {...themedScrollIndicatorProps}
         style={styles.scroll}
@@ -382,6 +425,65 @@ export default function CarDetailScreen() {
               ))}
             </Card>
           ) : null}
+
+          <Card title="Data quality" style={styles.section}>
+            <Text style={styles.sectionHint}>
+              Wrong year, hunt label, or photo? Tell us what should change.
+            </Text>
+            <PrimaryButton
+              label="Report a problem"
+              variant="ghost"
+              onPress={() => setReportOpen(true)}
+              icon={<MaterialCommunityIcons name="flag-outline" size={20} color={theme.accent} />}
+            />
+          </Card>
+
+          <Modal
+            visible={reportOpen}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setReportOpen(false)}
+          >
+            <Pressable style={styles.reportBackdrop} onPress={() => setReportOpen(false)}>
+              <Pressable style={styles.reportSheet} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.reportTitle}>Report catalog issue</Text>
+                <Text style={styles.sectionHint}>
+                  Optional: which field (e.g. treasure_hunt_type, year).
+                </Text>
+                <TextInput
+                  value={reportFieldPath}
+                  onChangeText={setReportFieldPath}
+                  style={styles.garageInput}
+                  placeholder="Field (optional)"
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="none"
+                />
+                <Text style={styles.chipLabel}>What’s wrong?</Text>
+                <TextInput
+                  value={reportMessage}
+                  onChangeText={setReportMessage}
+                  style={[styles.garageInput, styles.garageNotesInput]}
+                  placeholder="Describe the issue…"
+                  placeholderTextColor={theme.textMuted}
+                  multiline
+                />
+                <View style={styles.reportActions}>
+                  <PrimaryButton label="Cancel" variant="ghost" onPress={() => setReportOpen(false)} />
+                  <PrimaryButton
+                    label={report.isPending ? "Sending…" : "Send report"}
+                    onPress={() => {
+                      if (!reportMessage.trim()) {
+                        Alert.alert("Add details", "Please describe what looks incorrect.");
+                        return;
+                      }
+                      report.mutate();
+                    }}
+                    loading={report.isPending}
+                  />
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
 
           <Card title="Add to My Garage" style={[styles.section, styles.garageSection]}>
             <Text style={styles.sectionHint}>Pick how this copy fits your collection.</Text>
@@ -683,4 +785,33 @@ const styles = StyleSheet.create({
     marginBottom: theme.spaceSm,
   },
   garageNotesInput: { minHeight: 72, textAlignVertical: "top" },
+  reportBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    padding: theme.spaceLg,
+  },
+  reportSheet: {
+    backgroundColor: theme.bgElevated,
+    borderRadius: theme.radiusLg,
+    padding: theme.spaceLg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    maxWidth: 480,
+    width: "100%",
+    alignSelf: "center",
+  },
+  reportTitle: {
+    ...theme.typeTitleLg,
+    fontSize: 20,
+    color: theme.text,
+    marginBottom: theme.spaceSm,
+  },
+  reportActions: {
+    flexDirection: "row",
+    gap: theme.spaceMd,
+    marginTop: theme.spaceLg,
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+  },
 });

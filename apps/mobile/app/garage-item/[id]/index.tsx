@@ -24,7 +24,11 @@ import { HuntBadge } from "../../../components/ui/HuntBadge";
 import { LineChip } from "../../../components/ui/LineChip";
 import { PrimaryButton } from "../../../components/ui/PrimaryButton";
 import { useResponsiveLayout } from "../../../hooks/useResponsiveLayout";
+import { OfflineBanner } from "../../../components/ui/OfflineBanner";
+import { useGarageQueueDepth } from "../../../hooks/useGarageQueueDepth";
 import { deleteGarageItemPhoto, fetchGarage, patchGarageItem } from "../../../lib/api";
+import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
+import { getIsOnline, useOnline } from "../../../lib/network";
 import { resolveApiAssetUrl } from "../../../lib/config";
 import { garageConditionChipTint, garageStatusChipTint } from "../../../lib/garageFormChips";
 import { theme, themedScrollIndicatorProps } from "../../../lib/theme";
@@ -45,6 +49,8 @@ export default function GarageItemEditScreen() {
   const insets = useSafeAreaInsets();
   const { isWide, contentMaxWidth } = useResponsiveLayout();
   const qc = useQueryClient();
+  const online = useOnline();
+  const pendingGarage = useGarageQueueDepth();
 
   const garageQuery = useQuery({
     queryKey: ["garage"] as const,
@@ -72,27 +78,58 @@ export default function GarageItemEditScreen() {
   }, [row]);
 
   const patch = useMutation({
-    mutationFn: () =>
-      patchGarageItem(rowId, {
+    mutationFn: async () => {
+      const body = {
         status,
         condition,
         quantity: Math.max(1, Math.min(999, parseInt(quantityStr, 10) || 1)),
         notes: notes.trim() ? notes.trim() : null,
-      }),
-    onSuccess: async () => {
+      };
+      try {
+        await patchGarageItem(rowId, body);
+        return { queued: false as const };
+      } catch (e) {
+        const likelyOffline = !(await getIsOnline());
+        if (likelyOffline || isTransientNetworkError(e)) {
+          await enqueueGarageOp({ v: 1, kind: "patch", id: rowId, body });
+          return { queued: true as const };
+        }
+        throw e;
+      }
+    },
+    onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Updated", "Garage entry saved");
+      if (res.queued) {
+        Alert.alert("Offline", "Update queued for sync.");
+      } else {
+        Alert.alert("Updated", "Garage entry saved");
+      }
       router.back();
     },
     onError: (e) => Alert.alert("Could not save", String(e)),
   });
 
   const delPhoto = useMutation({
-    mutationFn: (photoId: string) => deleteGarageItemPhoto(rowId, photoId),
-    onSuccess: async () => {
+    mutationFn: async (photoId: string) => {
+      try {
+        await deleteGarageItemPhoto(rowId, photoId);
+        return { queued: false as const };
+      } catch (e) {
+        const likelyOffline = !(await getIsOnline());
+        if (likelyOffline || isTransientNetworkError(e)) {
+          await enqueueGarageOp({ v: 1, kind: "deletePhoto", garageItemId: rowId, photoId });
+          return { queued: true as const };
+        }
+        throw e;
+      }
+    },
+    onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (res.queued) {
+        Alert.alert("Offline", "Photo removal queued for sync.");
+      }
     },
     onError: (e) => Alert.alert("Could not remove photo", String(e)),
   });
@@ -147,6 +184,7 @@ export default function GarageItemEditScreen() {
 
   return (
     <View style={styles.root}>
+      <OfflineBanner online={online} pendingGarageOps={pendingGarage} />
       <ScrollView
         {...themedScrollIndicatorProps}
         contentContainerStyle={[styles.scroll, wideColumn]}

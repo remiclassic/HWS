@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -23,11 +24,27 @@ export const lineTypeEnum = pgEnum("line_type", [
 export const treasureHuntEnum = pgEnum("treasure_hunt_type", ["None", "TH", "STH"]);
 export const userCarStatusEnum = pgEnum("user_car_status", ["Owned", "Want", "Duplicate"]);
 export const userCarConditionEnum = pgEnum("user_car_condition", ["Carded", "Loose", "Custom"]);
+export const carDataReportStatusEnum = pgEnum("car_data_report_status", ["open", "triaged", "closed"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  notifyWantListUpdates: boolean("notify_want_list_updates").notNull().default(true),
 });
+
+export const userPushTokens = pgTable(
+  "user_push_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expoPushToken: text("expo_push_token").notNull(),
+    platform: varchar("platform", { length: 16 }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("user_push_tokens_expo_push_token_uidx").on(table.expoPushToken)],
+);
 
 export const sourceRegistry = pgTable("source_registry", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -132,3 +149,31 @@ export const userCarPhotos = pgTable("user_car_photos", {
   mimeType: varchar("mime_type", { length: 128 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const carDataReports = pgTable("car_data_reports", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  carId: uuid("car_id")
+    .notNull()
+    .references(() => canonicalCars.id, { onDelete: "cascade" }),
+  message: text("message").notNull(),
+  fieldPath: varchar("field_path", { length: 128 }),
+  status: carDataReportStatusEnum("status").notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const notificationSendLog = pgTable(
+  "notification_send_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 32 }).notNull(),
+    carId: uuid("car_id").references(() => canonicalCars.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("notification_send_log_user_created_idx").on(table.userId, table.createdAt)],
+);

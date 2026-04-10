@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: spotter
+          POSTGRES_PASSWORD: spotter_dev
+          POSTGRES_DB: hotwheels_spotter
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U spotter -d hotwheels_spotter"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://spotter:spotter_dev@localhost:5433/hotwheels_spotter
+      JWT_SECRET: ci-test-jwt-secret-min-16
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Migrate database
+        run: npm run db:migrate -w @hotwheels/api
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test API
+        run: npm run test -w @hotwheels/api

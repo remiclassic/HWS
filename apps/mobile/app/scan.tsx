@@ -1,5 +1,13 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,6 +19,7 @@ import { theme } from "../lib/theme";
 
 export default function ScanScreen() {
   const insets = useSafeAreaInsets();
+  const [manualCode, setManualCode] = useState("");
   const [permission, requestPermission] = useCameraPermissions();
   const handled = useRef(false);
   const [, setTick] = useState(0);
@@ -26,15 +35,38 @@ export default function ScanScreen() {
   }, []);
 
   if (Platform.OS === "web") {
+    const applyManual = () => {
+      const code = manualCode.trim();
+      if (!code) return;
+      void (async () => {
+        await setPendingBarcode(code);
+        if (router.canGoBack()) router.back();
+        else router.replace("/(tabs)");
+      })();
+    };
     return (
       <View style={styles.center}>
         <IconBarcodeScan color={theme.accentSecondary} size={56} />
-        <Text style={styles.title}>Scanner needs a device</Text>
+        <Text style={styles.title}>Enter barcode or SKU</Text>
         <Text style={styles.sub}>
-          On web, search from the Spotter tab by casting name or SKU. Use the mobile app to scan barcodes in
-          the aisle.
+          On web there’s no camera scanner. Type the code from the package, then we’ll jump back to Spotter
+          search with it filled in.
         </Text>
-        <PrimaryButton label="Go back" onPress={() => router.back()} />
+        <TextInput
+          value={manualCode}
+          onChangeText={setManualCode}
+          placeholder="UPC, EAN, or SKU"
+          placeholderTextColor={theme.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="default"
+          onSubmitEditing={applyManual}
+          style={styles.webInput}
+        />
+        <View style={styles.btnStack}>
+          <PrimaryButton label="Search with this code" onPress={applyManual} />
+          <PrimaryButton label="Go back" variant="ghost" onPress={() => router.back()} />
+        </View>
       </View>
     );
   }
@@ -188,5 +220,19 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 320,
     gap: theme.spaceSm,
+  },
+  webInput: {
+    width: "100%",
+    maxWidth: 360,
+    marginTop: theme.spaceMd,
+    paddingHorizontal: theme.spaceMd,
+    paddingVertical: 14,
+    borderRadius: theme.radiusMd,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.borderStrong,
+    backgroundColor: theme.bgElevated,
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: "600",
   },
 });

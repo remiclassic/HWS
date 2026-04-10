@@ -1,11 +1,11 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import {
   createUserCarBodySchema,
   garagePhotoUploadResponseSchema,
   patchUserCarBodySchema,
   userCarSchema,
 } from "@hotwheels/shared";
-import { verifyUserToken } from "../lib/auth.js";
+import { requireUser } from "../lib/httpAuth.js";
 import {
   addUserCarPhoto,
   createUserCar,
@@ -14,21 +14,6 @@ import {
   listGarage,
   patchUserCar,
 } from "../services/garage.service.js";
-
-async function requireUser(req: FastifyRequest, reply: FastifyReply): Promise<string | undefined> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) {
-    reply.status(401).send({ error: "Unauthorized" });
-    return undefined;
-  }
-  const token = auth.slice("Bearer ".length).trim();
-  try {
-    return await verifyUserToken(token);
-  } catch {
-    reply.status(401).send({ error: "Invalid token" });
-    return undefined;
-  }
-}
 
 export async function registerGarageRoutes(app: FastifyInstance) {
   app.get("/me/garage", async (req, reply) => {

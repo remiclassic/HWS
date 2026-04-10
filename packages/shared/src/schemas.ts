@@ -157,6 +157,28 @@ export const authTokenResponseSchema = z.object({
 });
 export type AuthTokenResponse = z.infer<typeof authTokenResponseSchema>;
 
+export const createCarDataReportBodySchema = z.object({
+  message: z.string().min(1).max(4000),
+  field_path: z.string().max(128).nullable().optional(),
+});
+export type CreateCarDataReportBody = z.infer<typeof createCarDataReportBodySchema>;
+
+export const registerPushTokenBodySchema = z.object({
+  expo_push_token: z.string().min(1).max(512),
+  platform: z.enum(["ios", "android", "web"]),
+});
+export type RegisterPushTokenBody = z.infer<typeof registerPushTokenBodySchema>;
+
+export const patchNotificationPrefsBodySchema = z.object({
+  notify_want_updates: z.boolean(),
+});
+export type PatchNotificationPrefsBody = z.infer<typeof patchNotificationPrefsBodySchema>;
+
+export const meSettingsResponseSchema = z.object({
+  notify_want_updates: z.boolean(),
+});
+export type MeSettingsResponse = z.infer<typeof meSettingsResponseSchema>;
+
 export const garagePhotoUploadResponseSchema = z.object({
   photo: userCarPhotoSchema,
 });

@@ -4,6 +4,8 @@ import {
   parseManualCarPayload,
   upsertManualCanonicalCar,
 } from "../ingestion/manualImport.js";
+import { listCarDataReportsInternal } from "../services/carReports.service.js";
+import { notifyWantListForCatalogUpdates } from "../services/wantListPush.service.js";
 
 function requireInternalKey(
   req: FastifyRequest,
@@ -27,12 +29,39 @@ const bulkBodySchema = z.object({
   stop_on_error: z.boolean().optional().default(false),
 });
 
+const listReportsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
 export async function registerIngestionRoutes(app: FastifyInstance) {
+  app.get("/internal/car-reports", async (req, reply) => {
+    if (!requireInternalKey(req, reply)) return;
+    const parsed = listReportsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      reply.status(400).send({ error: parsed.error.flatten() });
+      return;
+    }
+    const rows = await listCarDataReportsInternal(parsed.data.limit, parsed.data.offset);
+    reply.send({
+      items: rows.map((r) => ({
+        id: r.id,
+        user_id: r.userId,
+        car_id: r.carId,
+        message: r.message,
+        field_path: r.fieldPath,
+        status: r.status,
+        created_at: r.createdAt.toISOString(),
+      })),
+    });
+  });
+
   app.post("/internal/import/manual-car", async (req, reply) => {
     if (!requireInternalKey(req, reply)) return;
     try {
       const payload = parseManualCarPayload(req.body);
       const id = await upsertManualCanonicalCar(payload);
+      void notifyWantListForCatalogUpdates([{ carId: id, castingName: payload.casting_name }]);
       reply.send({ ok: true, car_id: id });
     } catch (e) {
       reply.status(400).send({
@@ -51,10 +80,12 @@ export async function registerIngestionRoutes(app: FastifyInstance) {
     }
     const { cars: items, stop_on_error: stopOnError } = parsed.data;
     const results: { index: number; ok: boolean; car_id?: string; error?: string }[] = [];
+    const touched: { carId: string; castingName: string }[] = [];
     for (let i = 0; i < items.length; i++) {
       try {
         const payload = parseManualCarPayload(items[i]);
         const car_id = await upsertManualCanonicalCar(payload);
+        touched.push({ carId: car_id, castingName: payload.casting_name });
         results.push({ index: i, ok: true, car_id });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Invalid payload";
@@ -70,6 +101,7 @@ export async function registerIngestionRoutes(app: FastifyInstance) {
         }
       }
     }
+    void notifyWantListForCatalogUpdates(touched);
     reply.send({
       ok: true,
       total: items.length,

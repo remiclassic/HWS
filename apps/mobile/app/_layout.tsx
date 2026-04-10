@@ -11,6 +11,15 @@ import { setToken, getToken } from "../lib/authStorage";
 import { asyncStoragePersister, queryClient } from "../lib/queryClient";
 import { theme } from "../lib/theme";
 import { WebScrollbarStyles } from "../lib/WebScrollbarStyles";
+import { initSentry } from "../lib/sentry";
+import { useGarageQueueProcessor } from "../hooks/useGarageQueueProcessor";
+
+initSentry();
+
+function GarageSyncBootstrap({ children }: { children: React.ReactNode }) {
+  useGarageQueueProcessor();
+  return <>{children}</>;
+}
 
 function AuthBootstrap({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -67,30 +76,34 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
         <AuthBootstrap>
-          <StatusBar style="light" />
-          <WebScrollbarStyles />
-          <Stack
-            screenOptions={{
-              headerStyle: {
-                backgroundColor: theme.bgElevated,
-              },
-              headerShadowVisible: false,
-              headerTintColor: theme.accent,
-              headerTitleStyle: {
-                fontWeight: "800",
-                fontSize: 17,
-                color: theme.text,
-              },
-              contentStyle: { backgroundColor: theme.bg },
-            }}
-          >
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="car/[id]" options={{ title: "Reference" }} />
-            <Stack.Screen name="th/[id]" options={{ title: "Treasure Hunt" }} />
-            <Stack.Screen name="scan" options={{ title: "Scan barcode" }} />
-            <Stack.Screen name="garage-item/[id]" options={{ title: "Edit garage item" }} />
-            <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
-          </Stack>
+          <GarageSyncBootstrap>
+            <StatusBar style="light" />
+            <WebScrollbarStyles />
+            <Stack
+              screenOptions={{
+                headerStyle: {
+                  backgroundColor: theme.bgElevated,
+                },
+                headerShadowVisible: false,
+                headerTintColor: theme.accent,
+                headerTitleStyle: {
+                  fontWeight: "800",
+                  fontSize: 17,
+                  color: theme.text,
+                },
+                contentStyle: { backgroundColor: theme.bg },
+              }}
+            >
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="car/[id]" options={{ title: "Reference" }} />
+              <Stack.Screen name="th/[id]" options={{ title: "Treasure Hunt" }} />
+              <Stack.Screen name="scan" options={{ title: "Scan barcode" }} />
+              <Stack.Screen name="garage-item/[id]" options={{ title: "Edit garage item" }} />
+              <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
+              <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
+              <Stack.Screen name="settings" options={{ title: "Settings" }} />
+            </Stack>
+          </GarageSyncBootstrap>
         </AuthBootstrap>
       </PersistQueryClientProvider>
     </SafeAreaProvider>

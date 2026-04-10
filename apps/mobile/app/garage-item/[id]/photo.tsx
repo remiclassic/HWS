@@ -15,6 +15,8 @@ import * as Haptics from "expo-haptics";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { theme } from "../../../lib/theme";
 import { uploadGarageItemPhoto } from "../../../lib/api";
+import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
+import { getIsOnline } from "../../../lib/network";
 
 function guessMimeFromUri(uri: string): string {
   const lower = uri.toLowerCase();
@@ -33,11 +35,32 @@ export default function GarageItemPhotoScreen() {
   const qc = useQueryClient();
 
   const upload = useMutation({
-    mutationFn: (uri: string) =>
-      uploadGarageItemPhoto(garageItemId, uri, guessMimeFromUri(uri)),
-    onSuccess: async () => {
+    mutationFn: async (uri: string) => {
+      const mime = guessMimeFromUri(uri);
+      try {
+        await uploadGarageItemPhoto(garageItemId, uri, mime);
+        return { queued: false as const };
+      } catch (e) {
+        const likelyOffline = !(await getIsOnline());
+        if (likelyOffline || isTransientNetworkError(e)) {
+          await enqueueGarageOp({
+            v: 1,
+            kind: "uploadPhoto",
+            garageItemId,
+            localUri: uri,
+            mimeType: mime,
+          });
+          return { queued: true as const };
+        }
+        throw e;
+      }
+    },
+    onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (res.queued) {
+        Alert.alert("Offline", "Photo upload queued for when you’re online.");
+      }
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)/garage");
     },

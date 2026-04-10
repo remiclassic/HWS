@@ -2,8 +2,12 @@ import type {
   CarDetailDto,
   CarsListResponse,
   CarsQuery,
+  CreateCarDataReportBody,
   CreateUserCarBody,
+  MeSettingsResponse,
+  PatchNotificationPrefsBody,
   PatchUserCarBody,
+  RegisterPushTokenBody,
   UserCarDto,
   UserCarPhotoDto,
 } from "@hotwheels/shared";
@@ -12,6 +16,7 @@ import {
   carDetailSchema,
   carsListResponseSchema,
   garagePhotoUploadResponseSchema,
+  meSettingsResponseSchema,
   userCarSchema,
 } from "@hotwheels/shared";
 import { getApiBase } from "./config";
@@ -79,6 +84,16 @@ export async function fetchCar(id: string): Promise<CarDetailDto> {
   return carDetailSchema.parse(raw);
 }
 
+export async function submitCarDataReport(
+  carId: string,
+  body: CreateCarDataReportBody,
+): Promise<{ id: string }> {
+  return request<{ id: string }>(`/cars/${carId}/reports`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export async function fetchThExplanation(id: string): Promise<{
   car_id: string;
   treasure_hunt_type: string;
@@ -143,3 +158,30 @@ export async function uploadGarageItemPhoto(
 export async function deleteGarageItemPhoto(garageItemId: string, photoId: string): Promise<void> {
   await request<unknown>(`/me/garage/${garageItemId}/photos/${photoId}`, { method: "DELETE" });
 }
+
+export async function fetchMeSettings(): Promise<MeSettingsResponse> {
+  const raw = await request<unknown>("/me/settings");
+  return meSettingsResponseSchema.parse(raw);
+}
+
+export async function patchNotificationPreferences(
+  body: PatchNotificationPrefsBody,
+): Promise<MeSettingsResponse> {
+  const raw = await request<unknown>("/me/notification-preferences", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  return meSettingsResponseSchema.parse(raw);
+}
+
+export async function registerPushToken(body: RegisterPushTokenBody): Promise<void> {
+  await request<unknown>("/me/push-token", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function unregisterPushTokens(): Promise<void> {
+  await request<unknown>("/me/push-token", { method: "DELETE" });
+}
+

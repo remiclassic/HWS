@@ -9,6 +9,7 @@
     "postinstall": "npm run build -w @hotwheels/shared",
     "build": "npm run build -w @hotwheels/shared -w @hotwheels/api",
     "lint": "npm run lint -w @hotwheels/shared -w @hotwheels/api && npm run lint -w @hotwheels/mobile",
+    "test": "npm run test -w @hotwheels/api",
     "db:up": "docker compose -f infra/docker-compose.yml up -d",
     "db:down": "docker compose -f infra/docker-compose.yml down"
   },
