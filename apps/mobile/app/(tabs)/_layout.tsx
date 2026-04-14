@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Alert, Pressable, Share, View } from "react-native";
+import { Alert, Platform, Pressable, Share, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
@@ -43,6 +43,23 @@ function GarageExportHeaderButton() {
       null,
       2,
     );
+    if (Platform.OS === "web") {
+      // react-native Share is a no-op on desktop browsers; write a real download.
+      try {
+        const blob = new Blob([payload], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `hotwheels-garage-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      } catch (e) {
+        Alert.alert("Export failed", e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
     void Share.share({ message: payload, title: "Hot Wheels garage export" });
   }, [garageQuery.data?.items]);
   return (

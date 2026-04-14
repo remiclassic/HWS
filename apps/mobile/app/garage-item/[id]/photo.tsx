@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
@@ -17,6 +18,7 @@ import { theme } from "../../../lib/theme";
 import { uploadGarageItemPhoto } from "../../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
 import { getIsOnline } from "../../../lib/network";
+import { preparePhotoForUpload } from "../../../lib/photoPipeline";
 
 function guessMimeFromUri(uri: string): string {
   const lower = uri.toLowerCase();
@@ -35,10 +37,9 @@ export default function GarageItemPhotoScreen() {
   const qc = useQueryClient();
 
   const upload = useMutation({
-    mutationFn: async (uri: string) => {
-      const mime = guessMimeFromUri(uri);
+    mutationFn: async (input: { uri: string; mime: string }) => {
       try {
-        await uploadGarageItemPhoto(garageItemId, uri, mime);
+        await uploadGarageItemPhoto(garageItemId, input.uri, input.mime);
         return { queued: false as const };
       } catch (e) {
         const likelyOffline = !(await getIsOnline());
@@ -47,8 +48,8 @@ export default function GarageItemPhotoScreen() {
             v: 1,
             kind: "uploadPhoto",
             garageItemId,
-            localUri: uri,
-            mimeType: mime,
+            localUri: input.uri,
+            mimeType: input.mime,
           });
           return { queued: true as const };
         }
@@ -60,12 +61,12 @@ export default function GarageItemPhotoScreen() {
       await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
-        Alert.alert("Offline", "Photo upload queued for when you’re online.");
+        Alert.alert("Offline", "Photo upload queued for when you're online.");
       }
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)/garage");
     },
-    onError: (e) => Alert.alert("Upload failed", String(e)),
+    onError: (e) => Alert.alert("Upload failed", e instanceof Error ? e.message : String(e)),
   });
 
   const onShutter = useCallback(() => {
@@ -73,37 +74,74 @@ export default function GarageItemPhotoScreen() {
     void (async () => {
       try {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        const pic = await camRef.current?.takePictureAsync({ quality: 0.85 });
+        const pic = await camRef.current?.takePictureAsync({ quality: 0.9 });
         if (!pic?.uri) {
           Alert.alert("Camera", "Could not capture a photo. Try again.");
           return;
         }
-        upload.mutate(pic.uri);
+        const prepared = await preparePhotoForUpload(pic.uri, guessMimeFromUri(pic.uri), pic.width, pic.height);
+        upload.mutate({ uri: prepared.uri, mime: prepared.mimeType });
       } catch (e) {
-        Alert.alert("Camera", String(e));
+        Alert.alert("Camera", e instanceof Error ? e.message : String(e));
       }
     })();
   }, [ready, upload]);
 
-  if (Platform.OS === "web") {
-    return (
-      <View style={styles.center}>
-        <MaterialCommunityIcons name="camera-off" size={48} color={theme.textMuted} />
-        <Text style={styles.title}>Camera capture on device</Text>
-        <Text style={styles.sub}>
-          Taking garage photos works in the iOS or Android app. On web, add photos from your phone.
-        </Text>
-        <Pressable style={styles.btn} onPress={() => router.back()}>
-          <Text style={styles.btnTxt}>Go back</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const pickFromLibrary = useCallback(() => {
+    if (upload.isPending) return;
+    void (async () => {
+      try {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert("Photos", "Photo library permission is required.");
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 1,
+          allowsMultipleSelection: false,
+          exif: false,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const prepared = await preparePhotoForUpload(
+          asset.uri,
+          asset.mimeType ?? guessMimeFromUri(asset.uri),
+          asset.width,
+          asset.height,
+        );
+        upload.mutate({ uri: prepared.uri, mime: prepared.mimeType });
+      } catch (e) {
+        Alert.alert("Pick photo", e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [upload]);
 
   if (!garageItemId) {
     return (
       <View style={styles.center}>
         <Text style={styles.err}>Missing garage item.</Text>
+      </View>
+    );
+  }
+
+  // Web target: no live camera, use the library picker (works for local dev too).
+  if (Platform.OS === "web") {
+    return (
+      <View style={styles.center}>
+        <MaterialCommunityIcons name="image-plus" size={48} color={theme.accent} />
+        <Text style={styles.title}>Upload a photo</Text>
+        <Text style={styles.sub}>Choose an image from your device — it&apos;s resized and metadata stripped before upload.</Text>
+        <Pressable style={styles.btn} onPress={pickFromLibrary} disabled={upload.isPending}>
+          {upload.isPending ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnTxt}>Choose file</Text>
+          )}
+        </Pressable>
+        <Pressable style={styles.btnGhost} onPress={() => router.back()}>
+          <Text style={styles.btnGhostTxt}>Cancel</Text>
+        </Pressable>
       </View>
     );
   }
@@ -121,7 +159,7 @@ export default function GarageItemPhotoScreen() {
       <View style={styles.center}>
         <MaterialCommunityIcons name="camera-outline" size={44} color={theme.accent} />
         <Text style={styles.title}>Camera access</Text>
-        <Text style={styles.sub}>Allow the camera to snap a photo of your car for this garage entry.</Text>
+        <Text style={styles.sub}>Allow the camera to snap a photo, or pick one from your library.</Text>
         <Pressable
           style={styles.btn}
           onPress={() => {
@@ -129,6 +167,9 @@ export default function GarageItemPhotoScreen() {
           }}
         >
           <Text style={styles.btnTxt}>Allow camera</Text>
+        </Pressable>
+        <Pressable style={styles.btnGhost} onPress={pickFromLibrary}>
+          <Text style={styles.btnGhostTxt}>Pick from library</Text>
         </Pressable>
         <Pressable style={styles.btnGhost} onPress={() => router.back()}>
           <Text style={styles.btnGhostTxt}>Cancel</Text>
@@ -146,9 +187,17 @@ export default function GarageItemPhotoScreen() {
         mode="picture"
         onCameraReady={() => setReady(true)}
       />
-      <View style={styles.overlay} pointerEvents="box-none">
-        <Text style={styles.hint}>Frame your car, then tap the shutter</Text>
+      <View style={[styles.overlay, { pointerEvents: "box-none" }]}>
+        <Text style={styles.hint}>Frame your car, then tap the shutter — or pick from library</Text>
         <View style={styles.bottomRow}>
+          <Pressable
+            onPress={pickFromLibrary}
+            style={styles.libraryBtn}
+            disabled={upload.isPending}
+            accessibilityLabel="Pick from library"
+          >
+            <MaterialCommunityIcons name="image-outline" size={24} color="#fff" />
+          </Pressable>
           <Pressable
             style={[styles.shutter, (!ready || upload.isPending) && styles.shutterDisabled]}
             onPress={onShutter}
@@ -161,6 +210,7 @@ export default function GarageItemPhotoScreen() {
               <View style={styles.shutterInner} />
             )}
           </Pressable>
+          <View style={styles.libraryBtn} />
         </View>
         <Pressable style={styles.closeFab} onPress={() => router.back()} accessibilityLabel="Close">
           <MaterialCommunityIcons name="close" size={28} color={theme.text} />
@@ -181,18 +231,36 @@ const styles = StyleSheet.create({
   },
   hint: {
     position: "absolute",
-    bottom: 120,
+    bottom: 140,
     left: theme.spaceLg,
     right: theme.spaceLg,
     color: "#fff",
     fontSize: 15,
     fontWeight: "700",
     textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.75)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    ...Platform.select({
+      web: { textShadow: "0px 1px 4px rgba(0,0,0,0.75)" },
+      default: {
+        textShadowColor: "rgba(0,0,0,0.75)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
+      },
+    }),
   },
-  bottomRow: { alignItems: "center" },
+  bottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.spaceXl,
+  },
+  libraryBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   shutter: {
     width: 72,
     height: 72,
@@ -247,6 +315,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: theme.spaceXl,
     borderRadius: theme.radiusMd,
+    minWidth: 200,
+    alignItems: "center",
   },
   btnTxt: { color: "#fff", fontWeight: "800", fontSize: 16 },
   btnGhost: { padding: theme.spaceMd },

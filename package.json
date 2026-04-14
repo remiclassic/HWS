@@ -3,15 +3,24 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "db",
+    "supabase/tests"
   ],
   "scripts": {
     "postinstall": "npm run build -w @hotwheels/shared",
-    "build": "npm run build -w @hotwheels/shared -w @hotwheels/api",
-    "lint": "npm run lint -w @hotwheels/shared -w @hotwheels/api && npm run lint -w @hotwheels/mobile",
-    "test": "npm run test -w @hotwheels/api",
-    "db:up": "docker compose -f infra/docker-compose.yml up -d",
-    "db:down": "docker compose -f infra/docker-compose.yml down"
+    "build": "npm run build -w @hotwheels/shared",
+    "lint": "npm run lint -w @hotwheels/shared && npm run lint -w @hotwheels/mobile",
+    "test": "npm run test -w @hotwheels/mobile && npm run test -w @hotwheels/supabase-tests",
+    "test:mobile": "npm run test -w @hotwheels/mobile",
+    "test:rls": "bash -c 'eval \"$(npx supabase status -o env)\" && export SUPABASE_URL=$API_URL SUPABASE_ANON_KEY=$ANON_KEY SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY && npm run test -w @hotwheels/supabase-tests'",
+    "db:start": "npx supabase start",
+    "db:stop": "npx supabase stop",
+    "db:reset": "npx supabase db reset",
+    "db:generate": "npm run generate -w @hotwheels/db",
+    "dev": "npm run start -w @hotwheels/mobile",
+    "admin": "npm run dev -w @hotwheels/admin",
+    "functions": "npx supabase functions serve"
   },
   "engines": {
     "node": ">=20"
@@ -19,5 +28,6 @@
   "overrides": {
     "react": "19.2.5",
     "react-dom": "19.2.5"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

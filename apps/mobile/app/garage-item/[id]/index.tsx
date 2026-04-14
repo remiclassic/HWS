@@ -29,7 +29,6 @@ import { useGarageQueueDepth } from "../../../hooks/useGarageQueueDepth";
 import { deleteGarageItemPhoto, fetchGarage, patchGarageItem } from "../../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
 import { getIsOnline, useOnline } from "../../../lib/network";
-import { resolveApiAssetUrl } from "../../../lib/config";
 import { garageConditionChipTint, garageStatusChipTint } from "../../../lib/garageFormChips";
 import { theme, themedScrollIndicatorProps } from "../../../lib/theme";
 
@@ -229,7 +228,7 @@ export default function GarageItemEditScreen() {
           {photos.map((p) => (
             <View key={p.id} style={styles.thumbWrap}>
               <ExpoImage
-                source={{ uri: resolveApiAssetUrl(p.url) }}
+                source={{ uri: p.url }}
                 style={styles.thumb}
                 contentFit="cover"
                 transition={200}

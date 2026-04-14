@@ -230,12 +230,23 @@ export default function GarageScreen() {
   return (
     <View style={styles.screen}>
       <OfflineBanner online={online} pendingGarageOps={pendingGarage} />
-      {garageQuery.isError ? (
+      {garageQuery.isError && !garageQuery.data ? (
         <View style={[styles.bannerErr, wideColumnStyle]}>
           <IconCloudOff color={theme.danger} size={20} />
-          <Text style={styles.bannerErrTxt}>
-            Could not sync garage. Check connection and API.
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bannerErrTxt}>Could not load garage</Text>
+            <Text style={[styles.bannerErrTxt, { opacity: 0.85, fontWeight: "600", marginTop: 2 }]}>
+              {garageQuery.error instanceof Error ? garageQuery.error.message : "Unknown error"}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => void garageQuery.refetch()}
+            style={styles.retryBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading garage"
+          >
+            <Text style={styles.retryBtnTxt}>Retry</Text>
+          </Pressable>
         </View>
       ) : null}
       <FlatList
@@ -399,5 +410,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.danger + "44",
   },
-  bannerErrTxt: { flex: 1, color: theme.danger, fontWeight: "600", fontSize: 14, lineHeight: 20 },
+  bannerErrTxt: { color: theme.danger, fontWeight: "700", fontSize: 14, lineHeight: 20 },
+  retryBtn: {
+    paddingHorizontal: theme.spaceMd,
+    paddingVertical: 6,
+    borderRadius: theme.radiusSm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.danger,
+  },
+  retryBtnTxt: { color: theme.danger, fontWeight: "800", fontSize: 13 },
 });

@@ -1,15 +1,14 @@
 import "react-native-reanimated";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
-import { Stack } from "expo-router";
+import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { OnboardingNavigationGate } from "../components/navigation/OnboardingNavigationGate";
 import { OnboardingProvider, useOnboarding } from "../contexts/OnboardingContext";
-import { authAnonymous } from "../lib/api";
-import { setToken, getToken } from "../lib/authStorage";
+import { useSession } from "../lib/auth";
 import { asyncStoragePersister, queryClient } from "../lib/queryClient";
 import { theme } from "../lib/theme";
 import { WebScrollbarStyles } from "../lib/WebScrollbarStyles";
@@ -23,26 +22,24 @@ function GarageSyncBootstrap({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const PUBLIC_ROUTES = new Set(["login", "signup", "forgot-password", "legal"]);
+
 function AuthBootstrap({ children }: { children: React.ReactNode }) {
-  const [ready, setReady] = useState(false);
+  const { status } = useSession();
+  const segments = useSegments();
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const existing = await getToken();
-        if (!existing) {
-          const { token } = await authAnonymous();
-          if (!cancelled) await setToken(token);
-        }
-      } finally {
-        if (!cancelled) setReady(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (status === "loading") return;
+    const top = segments[0] ?? "";
+    const onPublic = PUBLIC_ROUTES.has(top);
+    if (status === "unauthenticated" && !onPublic) {
+      router.replace("/login");
+    } else if (status === "authenticated" && (top === "login" || top === "signup" || top === "forgot-password")) {
+      router.replace("/(tabs)");
+    }
+  }, [status, segments]);
+
+  const ready = status !== "loading";
 
   if (!ready) {
     return (
@@ -85,7 +82,7 @@ function MainStack() {
         <Stack.Screen name="car/[id]" options={{ title: "Reference" }} />
         <Stack.Screen name="th/[id]" options={{ title: "Treasure Hunt" }} />
         <Stack.Screen name="scan" options={{ title: "Scan barcode" }} />
-        <Stack.Screen name="garage-item/[id]" options={{ title: "Edit garage item" }} />
+        <Stack.Screen name="garage-item/[id]/index" options={{ title: "Edit garage item" }} />
         <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
         <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
         <Stack.Screen name="collector-progress" options={{ title: "Collector progress" }} />
@@ -94,6 +91,7 @@ function MainStack() {
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
         <Stack.Screen name="login" options={{ title: "Sign in" }} />
         <Stack.Screen name="signup" options={{ title: "Create account" }} />
+        <Stack.Screen name="forgot-password" options={{ title: "Reset password" }} />
         <Stack.Screen name="link-email" options={{ title: "Link email" }} />
         <Stack.Screen name="legal/privacy" options={{ title: "Privacy" }} />
         <Stack.Screen name="legal/terms" options={{ title: "Terms" }} />
@@ -139,7 +137,9 @@ export default function RootLayout() {
     () => ({
       persister: asyncStoragePersister,
       dehydrateOptions: {
-        shouldDehydrateQuery: (q: { queryKey: readonly unknown[] }) => {
+        shouldDehydrateQuery: (q: { queryKey: readonly unknown[]; state: { status: string } }) => {
+          // Never persist pending/failed queries — their rejection fires on restore.
+          if (q.state.status !== "success") return false;
           const k = q.queryKey[0];
           return k === "car" || k === "garage" || k === "th" || k === "gamification";
         },

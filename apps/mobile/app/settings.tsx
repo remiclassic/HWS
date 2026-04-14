@@ -14,6 +14,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Card } from "../components/ui/Card";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { useOnboarding } from "../contexts/OnboardingContext";
 import {
   deleteMeAccount,
@@ -26,7 +27,7 @@ import {
   registerPushToken,
   unregisterPushTokens,
 } from "../lib/api";
-import { refreshAnonymousSession } from "../lib/authSession";
+import { signOut } from "../lib/auth";
 import { registerForExpoPushAsync } from "../lib/registerForPush";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
@@ -39,6 +40,9 @@ export default function SettingsScreen() {
   const [wantPush, setWantPush] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     if (settingsQ.data) setWantPush(settingsQ.data.notify_want_updates);
@@ -110,51 +114,36 @@ export default function SettingsScreen() {
   const deleteAccountMut = useMutation({
     mutationFn: deleteMeAccount,
     onSuccess: async () => {
-      await refreshAnonymousSession();
-      router.replace("/(tabs)");
-      Alert.alert("Account deleted", "A new profile was created on this device.");
+      await signOut();
+      router.replace("/login");
+      Alert.alert("Account deleted", "Your account and data have been removed.");
     },
     onError: (e) => Alert.alert("Could not delete account", String(e)),
   });
 
-  const confirmDeleteAccount = useCallback(() => {
-    Alert.alert(
-      "Delete account?",
-      "This removes your profile, garage, and related data from the server. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => deleteAccountMut.mutate(),
-        },
-      ],
-    );
+  const confirmDeleteAccount = useCallback(() => setDeleteOpen(true), []);
+
+  const onConfirmDelete = useCallback(() => {
+    setDeleteOpen(false);
+    deleteAccountMut.mutate();
   }, [deleteAccountMut]);
 
-  const confirmSignOut = useCallback(() => {
-    Alert.alert(
-      "Sign out?",
-      "You will get a fresh anonymous profile on this device. Sign in again to restore an email-linked garage.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign out",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await refreshAnonymousSession();
-                await qc.invalidateQueries();
-              } catch (e) {
-                Alert.alert("Sign out failed", String(e));
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [qc]);
+  const confirmSignOut = useCallback(() => setSignOutOpen(true), []);
+
+  const onConfirmSignOut = useCallback(() => {
+    void (async () => {
+      setSigningOut(true);
+      try {
+        await signOut();
+        setSignOutOpen(false);
+        router.replace("/login");
+      } catch (e) {
+        Alert.alert("Sign out failed", e instanceof Error ? e.message : String(e));
+      } finally {
+        setSigningOut(false);
+      }
+    })();
+  }, []);
 
   return (
     <ScrollView
@@ -176,47 +165,16 @@ export default function SettingsScreen() {
 
       <Card title="Account" style={styles.card}>
         <Text style={styles.hint}>
-          {accountQ.data?.email
-            ? `Signed in as ${accountQ.data.email}.`
-            : "Anonymous profile on this device. Link an email to sign in on another device with the same garage."}
+          {accountQ.data?.email ? `Signed in as ${accountQ.data.email}.` : "Signed in."}
         </Text>
-        {accountQ.data?.email ? (
-          <Pressable
-            onPress={confirmSignOut}
-            style={styles.stackLinkWrap}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-          >
-            <Text style={styles.stackLinkTxt}>Sign out</Text>
-          </Pressable>
-        ) : (
-          <>
-            <Pressable
-              onPress={() => router.push("/link-email")}
-              style={styles.stackLinkWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Link email"
-            >
-              <Text style={styles.stackLinkTxt}>Link email to this profile</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/login")}
-              style={styles.stackLinkWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in"
-            >
-              <Text style={styles.stackLinkTxt}>Sign in</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/signup")}
-              style={styles.stackLinkWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Create account"
-            >
-              <Text style={styles.stackLinkTxt}>Create new account</Text>
-            </Pressable>
-          </>
-        )}
+        <Pressable
+          onPress={confirmSignOut}
+          style={styles.stackLinkWrap}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+        >
+          <Text style={styles.stackLinkTxt}>Sign out</Text>
+        </Pressable>
       </Card>
 
       <Card title="Leaderboard & public profile" style={styles.card}>
@@ -358,6 +316,27 @@ export default function SettingsScreen() {
           <Text style={styles.link}>Close</Text>
         </Pressable>
       </Card>
+
+      <ConfirmDialog
+        visible={signOutOpen}
+        title="Sign out?"
+        message="You'll need to sign in again to access your garage."
+        confirmLabel="Sign out"
+        destructive
+        busy={signingOut}
+        onConfirm={onConfirmSignOut}
+        onCancel={() => setSignOutOpen(false)}
+      />
+      <ConfirmDialog
+        visible={deleteOpen}
+        title="Delete account?"
+        message="This removes your profile, garage, and related data from the server. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        busy={deleteAccountMut.isPending}
+        onConfirm={onConfirmDelete}
+        onCancel={() => setDeleteOpen(false)}
+      />
     </ScrollView>
   );
 }

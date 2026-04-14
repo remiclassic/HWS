@@ -7,6 +7,11 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 60_000,
       gcTime: 1000 * 60 * 60 * 24,
+      // Retry transient failures (token mid-refresh, brief network blips) before
+      // flipping the UI into an error state.
+      retry: 2,
+      retryDelay: (attempt) => Math.min(400 * 2 ** attempt, 3000),
+      refetchOnWindowFocus: false,
     },
   },
 });

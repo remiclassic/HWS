@@ -29,7 +29,7 @@ import { PrimaryButton } from "../../components/ui/PrimaryButton";
 import { SourcePill } from "../../components/ui/SourcePill";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
-import { addToGarage, fetchCar, submitCarDataReport } from "../../lib/api";
+import { addToGarage, AlreadyInGarageError, fetchCar, submitCarDataReport } from "../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../lib/garageMutationQueue";
 import { getIsOnline, useOnline } from "../../lib/network";
 import { OfflineBanner } from "../../components/ui/OfflineBanner";
@@ -184,7 +184,13 @@ export default function CarDetailScreen() {
         Alert.alert("Saved", "Saved to My Garage");
       }
     },
-    onError: (e) => Alert.alert("Could not save", String(e)),
+    onError: (e) => {
+      if (e instanceof AlreadyInGarageError) {
+        Alert.alert("Already in garage", "This car is already in your garage. Open My Garage to update it.");
+        return;
+      }
+      Alert.alert("Could not save", e instanceof Error ? e.message : String(e));
+    },
   });
 
   const report = useMutation({

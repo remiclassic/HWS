@@ -7,16 +7,25 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from "react-native";
-import { Link, router } from "expo-router";
+import { Link, router, useLocalSearchParams } from "expo-router";
 import { Card } from "../components/ui/Card";
-import { authLogin } from "../lib/api";
-import { applyAuthToken } from "../lib/authSession";
+import { signInWithPassword, signInAnonymouslyDev } from "../lib/auth";
+import { isLocalEnv } from "../lib/supabase";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
+// Dev convenience: prefill with the seeded test user when running locally.
+// See supabase/seed.sql. Release builds never see these defaults.
+const DEV_EMAIL = "dev@hotwheels.local";
+const DEV_PASSWORD = "dev-password-AA1";
+
 export default function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const params = useLocalSearchParams<{ justSignedUp?: string; email?: string }>();
+  const justSignedUp = params.justSignedUp === "1";
+  const incomingEmail = typeof params.email === "string" ? params.email : "";
+  const [email, setEmail] = useState(incomingEmail || (isLocalEnv ? DEV_EMAIL : ""));
+  const [password, setPassword] = useState(incomingEmail ? "" : isLocalEnv ? DEV_PASSWORD : "");
   const [busy, setBusy] = useState(false);
 
   const onSubmit = useCallback(async () => {
@@ -26,18 +35,26 @@ export default function LoginScreen() {
     }
     setBusy(true);
     try {
-      const { token } = await authLogin({
-        email: email.trim(),
-        password,
-      });
-      await applyAuthToken(token);
+      await signInWithPassword(email, password);
       router.replace("/(tabs)");
     } catch (e) {
-      Alert.alert("Sign in failed", String(e));
+      Alert.alert("Sign in failed", e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }, [email, password]);
+
+  const onDevAnon = useCallback(async () => {
+    setBusy(true);
+    try {
+      await signInAnonymouslyDev();
+      router.replace("/(tabs)");
+    } catch (e) {
+      Alert.alert("Anonymous sign-in failed", e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   return (
     <ScrollView
@@ -47,6 +64,16 @@ export default function LoginScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <Card title="Sign in">
+        {justSignedUp ? (
+          <View style={styles.banner}>
+            <Text style={styles.bannerTitle}>Account created</Text>
+            <Text style={styles.bannerBody}>
+              {isLocalEnv
+                ? "Sign in now with the password you just set."
+                : "Check your inbox for a confirmation link, then sign in."}
+            </Text>
+          </View>
+        ) : null}
         <Text style={styles.hint}>Use the email and password you registered with.</Text>
         <Text style={styles.label}>Email</Text>
         <TextInput
@@ -54,6 +81,8 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           autoCorrect={false}
+          autoComplete="email"
+          textContentType="emailAddress"
           keyboardType="email-address"
           placeholder="you@example.com"
           placeholderTextColor={theme.textMuted}
@@ -65,10 +94,13 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          autoComplete="password"
+          textContentType="password"
           placeholder="••••••••"
           placeholderTextColor={theme.textMuted}
           style={styles.input}
           editable={!busy}
+          onSubmitEditing={() => void onSubmit()}
         />
         <Pressable
           onPress={() => void onSubmit()}
@@ -83,11 +115,27 @@ export default function LoginScreen() {
             <Text style={styles.primaryBtnTxt}>Sign in</Text>
           )}
         </Pressable>
+        <Link href="/forgot-password" asChild>
+          <Pressable style={styles.secondaryLink} accessibilityRole="button" accessibilityLabel="Forgot password">
+            <Text style={styles.linkTxt}>Forgot password?</Text>
+          </Pressable>
+        </Link>
         <Link href="/signup" asChild>
           <Pressable style={styles.secondaryLink} accessibilityRole="button" accessibilityLabel="Create an account">
             <Text style={styles.linkTxt}>Create an account</Text>
           </Pressable>
         </Link>
+        {isLocalEnv ? (
+          <Pressable
+            onPress={() => void onDevAnon()}
+            disabled={busy}
+            style={styles.devLink}
+            accessibilityRole="button"
+            accessibilityLabel="Continue anonymously (dev only)"
+          >
+            <Text style={styles.devLinkTxt}>Continue anonymously (dev only)</Text>
+          </Pressable>
+        ) : null}
       </Card>
     </ScrollView>
   );
@@ -121,4 +169,16 @@ const styles = StyleSheet.create({
   primaryBtnTxt: { fontSize: 16, fontWeight: "800", color: theme.bg },
   secondaryLink: { marginTop: theme.spaceLg, alignItems: "center" },
   linkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
+  devLink: { marginTop: theme.spaceXl, alignItems: "center" },
+  devLinkTxt: { fontSize: 13, fontWeight: "600", color: theme.textMuted, textDecorationLine: "underline" },
+  banner: {
+    backgroundColor: theme.accentMuted,
+    borderRadius: theme.radiusMd,
+    padding: theme.spaceMd,
+    marginBottom: theme.spaceMd,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.accent,
+  },
+  bannerTitle: { fontSize: 14, fontWeight: "800", color: theme.text, marginBottom: 4 },
+  bannerBody: { fontSize: 13, fontWeight: "500", color: theme.textSecondary, lineHeight: 18 },
 });

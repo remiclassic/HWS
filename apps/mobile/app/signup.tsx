@@ -10,9 +10,17 @@ import {
 } from "react-native";
 import { Link, router } from "expo-router";
 import { Card } from "../components/ui/Card";
-import { authRegister } from "../lib/api";
-import { applyAuthToken } from "../lib/authSession";
+import { signUpWithPassword } from "../lib/auth";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
+
+// Mirror the server-side rule: min 10 chars, at least one lower, one upper, one digit.
+function validatePassword(pw: string): string | null {
+  if (pw.length < 10) return "Password must be at least 10 characters.";
+  if (!/[a-z]/.test(pw)) return "Password must include a lowercase letter.";
+  if (!/[A-Z]/.test(pw)) return "Password must include an uppercase letter.";
+  if (!/\d/.test(pw)) return "Password must include a number.";
+  return null;
+}
 
 export default function SignupScreen() {
   const [email, setEmail] = useState("");
@@ -24,20 +32,22 @@ export default function SignupScreen() {
       Alert.alert("Create account", "Enter email and password.");
       return;
     }
-    if (password.length < 8) {
-      Alert.alert("Create account", "Password must be at least 8 characters.");
+    const pwError = validatePassword(password);
+    if (pwError) {
+      Alert.alert("Create account", pwError);
       return;
     }
     setBusy(true);
     try {
-      const { token } = await authRegister({
-        email: email.trim(),
-        password,
-      });
-      await applyAuthToken(token);
-      router.replace("/(tabs)");
+      const { needsConfirmation } = await signUpWithPassword(email, password);
+      if (needsConfirmation) {
+        // Can't rely on Alert callbacks on web; push straight to login with a banner flag.
+        router.replace({ pathname: "/login", params: { justSignedUp: "1", email: email.trim() } });
+      } else {
+        router.replace("/(tabs)");
+      }
     } catch (e) {
-      Alert.alert("Could not create account", String(e));
+      Alert.alert("Could not create account", e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -52,8 +62,7 @@ export default function SignupScreen() {
     >
       <Card title="Create account">
         <Text style={styles.hint}>
-          Creates a new Spotter profile with this email. To keep your current garage, use “Link email” in Settings
-          instead.
+          Creates a new Spotter profile with this email. You&apos;ll need to confirm via the link we email you.
         </Text>
         <Text style={styles.label}>Email</Text>
         <TextInput
@@ -61,21 +70,26 @@ export default function SignupScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           autoCorrect={false}
+          autoComplete="email"
+          textContentType="emailAddress"
           keyboardType="email-address"
           placeholder="you@example.com"
           placeholderTextColor={theme.textMuted}
           style={styles.input}
           editable={!busy}
         />
-        <Text style={styles.label}>Password (min 8 characters)</Text>
+        <Text style={styles.label}>Password (10+ chars, upper/lower/number)</Text>
         <TextInput
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholder="••••••••"
+          autoComplete="password-new"
+          textContentType="newPassword"
+          placeholder="••••••••••"
           placeholderTextColor={theme.textMuted}
           style={styles.input}
           editable={!busy}
+          onSubmitEditing={() => void onSubmit()}
         />
         <Pressable
           onPress={() => void onSubmit()}

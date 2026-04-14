@@ -78,7 +78,7 @@ export const carDetailSchema = carListItemSchema.extend({
       is_official: z.boolean(),
     }),
   ),
-  last_verified_at: z.string().datetime().nullable(),
+  last_verified_at: z.string().datetime({ offset: true }).nullable(),
   th_explanation: z
     .object({
       summary: z.string(),
@@ -116,7 +116,7 @@ export type UserCarCondition = z.infer<typeof userCarConditionSchema>;
 export const userCarPhotoSchema = z.object({
   id: z.string().uuid(),
   url: z.string(),
-  created_at: z.string().datetime(),
+  created_at: z.string().datetime({ offset: true }),
 });
 export type UserCarPhotoDto = z.infer<typeof userCarPhotoSchema>;
 
@@ -128,7 +128,7 @@ export const userCarSchema = z.object({
   condition: userCarConditionSchema,
   quantity: z.number().int().positive(),
   notes: z.string().nullable(),
-  date_added: z.string().datetime(),
+  date_added: z.string().datetime({ offset: true }),
   car: carListItemSchema.optional(),
   photos: z.array(userCarPhotoSchema).default([]),
 });
@@ -169,7 +169,7 @@ export const meAccountResponseSchema = z.object({
 export type MeAccountResponse = z.infer<typeof meAccountResponseSchema>;
 
 export const meExportResponseSchema = z.object({
-  exported_at: z.string().datetime(),
+  exported_at: z.string().datetime({ offset: true }),
   email: z.string().email().nullable(),
   notify_want_updates: z.boolean(),
   garage_items: z.array(userCarSchema),
