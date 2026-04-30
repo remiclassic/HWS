@@ -197,6 +197,81 @@ No EAS. Builds run with `expo prebuild` (generates the `android/` native project
 
 ### Local build
 
+#### One-time setup — Windows (native, no WSL)
+
+**1. Install prerequisites** — open PowerShell as Administrator:
+
+```powershell
+# Node 20
+winget install OpenJS.NodeJS.LTS
+
+# JDK 17
+winget install EclipseAdoptium.Temurin.17.JDK
+
+# Git (if not already installed)
+winget install Git.Git
+```
+
+**2. Install Android Studio** — download from [developer.android.com/studio](https://developer.android.com/studio) and run the installer. During setup let it install the Android SDK (default location: `C:\Users\<you>\AppData\Local\Android\Sdk`).
+
+**3. Set environment variables** — open *System Properties → Environment Variables*:
+
+| Variable | Value |
+|----------|-------|
+| `ANDROID_HOME` | `C:\Users\<you>\AppData\Local\Android\Sdk` |
+| Add to `Path` | `%ANDROID_HOME%\platform-tools` |
+| Add to `Path` | `%ANDROID_HOME%\cmdline-tools\latest\bin` |
+
+Restart your terminal after setting these.
+
+**4. Install the required SDK components** — open Android Studio → *SDK Manager* → *SDK Platforms*: install **Android 14 (API 36)**. Under *SDK Tools*: install **Android SDK Build-Tools 36**, **NDK (Side by side) 27.1**, **CMake**.
+
+**5. Clone the repo to a Windows path** (avoid WSL paths — Gradle on Windows doesn't handle `\\wsl$\...` reliably):
+
+```powershell
+git clone https://github.com/remiclassic/HWS.git C:\Dev\HWS
+cd C:\Dev\HWS
+npm install
+```
+
+**6. Create the prod env file** — in PowerShell:
+
+```powershell
+@"
+EXPO_PUBLIC_ENV=production
+EXPO_PUBLIC_SUPABASE_URL=https://gvlnnjcdqpxqyouwypyq.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_IDL4VIURGr0sOZwpHXVZJw_WeI6xm0N
+"@ | Out-File -Encoding utf8 apps\mobile\.env.production
+```
+
+**7. Generate the native project and build:**
+
+```powershell
+# Generate android/ folder
+cd apps\mobile
+npx expo prebuild --platform android --clean
+
+# Build debug APK (no signing needed)
+cd android
+.\gradlew.bat assembleDebug --no-daemon
+```
+
+APK lands at `apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk`.
+
+**Install on a connected phone** (USB debugging on, USB mode set to File Transfer):
+
+```powershell
+adb install apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+> **Note:** `npm run build:android` uses a Unix path (`./gradlew`) so it won't work in PowerShell directly. Run `npx expo prebuild --platform android --clean` then `.\gradlew.bat assembleDebug` from the `android\` folder instead — or use Git Bash where `./gradlew` works normally.
+
+> **Re-run prebuild when:** you change `app.json`, add/remove a native package, or upgrade Expo. Pure JS changes don't need it.
+
+> **If prebuild seems to delete your source files:** run `git restore apps/mobile/` — everything is in git.
+
+---
+
 #### One-time setup (WSL / Ubuntu)
 
 ```bash
