@@ -17,7 +17,6 @@
           "recordAudioAndroid": false
         }
       ],
-      ["@sentry/react-native", { "uploadSourceMaps": false }],
       "expo-notifications"
     ],
     "splash": {
