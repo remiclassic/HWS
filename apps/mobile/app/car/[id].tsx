@@ -146,6 +146,7 @@ export default function CarDetailScreen() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportMessage, setReportMessage] = useState("");
   const [reportFieldPath, setReportFieldPath] = useState("");
+  const [savedOk, setSavedOk] = useState<"online" | "queued" | null>(null);
 
   const q = useQuery({
     queryKey: ["car", carId] as const,
@@ -177,12 +178,9 @@ export default function CarDetailScreen() {
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await qc.invalidateQueries({ queryKey: ["gamification"] });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (res.queued) {
-        Alert.alert("Offline", "Saved to sync queue. We’ll send it when you’re online.");
-      } else {
-        Alert.alert("Saved", "Saved to My Garage");
-      }
+      try { await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
+      setSavedOk(res.queued ? "queued" : "online");
+      setTimeout(() => setSavedOk(null), 3000);
     },
     onError: (e) => {
       if (e instanceof AlreadyInGarageError) {
@@ -550,12 +548,22 @@ export default function CarDetailScreen() {
         ]}
       >
         <View style={[styles.saveFooterInner, wideColumn]}>
+          {savedOk != null && (
+            <View style={styles.savedBanner}>
+              <MaterialCommunityIcons name="check-circle-outline" size={18} color={theme.officialText} />
+              <Text style={styles.savedBannerTxt}>
+                {savedOk === "queued" ? "Queued — will sync when online" : "Added to My Garage"}
+              </Text>
+            </View>
+          )}
           <PrimaryButton
-            label={add.isPending ? "Saving…" : "Save to garage"}
+            label={add.isPending ? "Saving…" : savedOk != null ? "Saved!" : "Save to garage"}
             onPress={() => add.mutate()}
             loading={add.isPending}
             icon={
-              <MaterialCommunityIcons name="bookmark-plus-outline" size={22} color="#fff" />
+              savedOk != null
+                ? <MaterialCommunityIcons name="check-circle-outline" size={22} color="#fff" />
+                : <MaterialCommunityIcons name="bookmark-plus-outline" size={22} color="#fff" />
             }
           />
         </View>
@@ -584,6 +592,24 @@ const styles = StyleSheet.create({
   },
   saveFooterInner: {
     paddingHorizontal: theme.spaceLg,
+  },
+  savedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spaceSm,
+    marginBottom: theme.spaceSm,
+    paddingHorizontal: theme.spaceSm,
+    paddingVertical: theme.spaceSm,
+    borderRadius: theme.radiusSm,
+    backgroundColor: theme.officialBg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.officialText + "44",
+  },
+  savedBannerTxt: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.officialText,
   },
   section: { marginTop: theme.spaceLg },
   garageSection: { marginBottom: theme.spaceSm },

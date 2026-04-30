@@ -20,7 +20,9 @@
     "db:generate": "npm run generate -w @hotwheels/db",
     "dev": "npm run start -w @hotwheels/mobile",
     "admin": "npm run dev -w @hotwheels/admin",
-    "functions": "npx supabase functions serve"
+    "functions": "npx supabase functions serve",
+    "build:android": "npm run build:android -w @hotwheels/mobile",
+    "build:android:prod": "npm run build:android:prod -w @hotwheels/mobile"
   },
   "engines": {
     "node": ">=20"

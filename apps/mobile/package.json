@@ -10,7 +10,9 @@
     "lint": "eslint app lib hooks components --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:android": "eas build -p android --profile preview",
+    "build:android:prod": "eas build -p android --profile production"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

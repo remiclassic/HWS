@@ -23,7 +23,7 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import {
   IconCarSearchLarge,
@@ -33,7 +33,7 @@ import {
   IconFilterSliders,
 } from "../../components/icons/AppIcons";
 import { huntFilterIconFor, lineFilterIconFor } from "../../components/icons/FilterPillIcons";
-import type { CarListItemDto, LineType, TreasureHuntType } from "@hotwheels/shared";
+import type { CarListItemDto, LineType, TreasureHuntType, UserCarStatus } from "@hotwheels/shared";
 import { FilterChip } from "../../components/ui/FilterChip";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { LineChip } from "../../components/ui/LineChip";
@@ -42,12 +42,27 @@ import { RemoteImage } from "../../components/ui/RemoteImage";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
-import { fetchCars } from "../../lib/api";
+import { fetchCars, fetchGarage } from "../../lib/api";
 import { takePendingBarcode } from "../../lib/pendingScanStorage";
 import { motion } from "../../lib/motion";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
 
 const PAGE_SIZE = 40;
+
+const GARAGE_BADGE_COLORS: Record<UserCarStatus, { text: string; bg: string; border: string }> = {
+  Owned: { text: theme.officialText, bg: theme.officialBg, border: theme.officialText + "55" },
+  Want: { text: theme.accent, bg: theme.accentMuted, border: theme.accent + "55" },
+  Duplicate: { text: theme.textSecondary, bg: theme.bgSubtle, border: theme.border },
+};
+
+const GarageStatusBadge = memo(function GarageStatusBadge({ status }: { status: UserCarStatus }) {
+  const c = GARAGE_BADGE_COLORS[status];
+  return (
+    <View style={[styles.garageBadge, { backgroundColor: c.bg, borderColor: c.border }]}>
+      <Text style={[styles.garageBadgeTxt, { color: c.text }]}>{status}</Text>
+    </View>
+  );
+});
 
 const LINE_FILTERS: { key: LineType | "all"; label: string }[] = [
   { key: "all", label: "All lines" },
@@ -68,7 +83,15 @@ const HUNT_FILTERS: { key: TreasureHuntType | "all"; label: string }[] = [
 
 const LIST_BELOW_TAB_EXTRA = 12;
 
-const CarRow = memo(function CarRow({ item, index }: { item: CarListItemDto; index: number }) {
+const CarRow = memo(function CarRow({
+  item,
+  index,
+  garageStatus,
+}: {
+  item: CarListItemDto;
+  index: number;
+  garageStatus?: UserCarStatus;
+}) {
   const onPress = useCallback(() => {
     router.push(`/car/${item.id}`);
   }, [item.id]);
@@ -102,6 +125,7 @@ const CarRow = memo(function CarRow({ item, index }: { item: CarListItemDto; ind
             <View style={styles.chipRow}>
               <LineChip line={item.line_type} />
               <HuntBadge type={item.treasure_hunt_type} />
+              {garageStatus != null && <GarageStatusBadge status={garageStatus} />}
             </View>
           </View>
         </View>
@@ -240,6 +264,20 @@ export default function SearchScreen() {
     };
   }, [debouncedQ, year, line, hunt]);
 
+  const garageQuery = useQuery({
+    queryKey: ["garage"] as const,
+    queryFn: fetchGarage,
+    staleTime: 30_000,
+  });
+
+  const garageMap = useMemo(() => {
+    const map = new Map<string, UserCarStatus>();
+    for (const item of garageQuery.data?.items ?? []) {
+      map.set(item.car_id, item.status);
+    }
+    return map;
+  }, [garageQuery.data]);
+
   const carsQuery = useInfiniteQuery({
     queryKey: ["cars", queryBase] as const,
     initialPageParam: 0,
@@ -276,9 +314,9 @@ export default function SearchScreen() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: CarListItemDto; index: number }) => (
-      <CarRow item={item} index={index} />
+      <CarRow item={item} index={index} garageStatus={garageMap.get(item.id)} />
     ),
-    [],
+    [garageMap],
   );
 
   const listEmpty = useMemo(() => {
@@ -877,5 +915,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     paddingVertical: theme.spaceMd,
     fontWeight: "500",
+  },
+  garageBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.radiusFull,
+    borderWidth: 1,
+  },
+  garageBadgeTxt: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
 });
