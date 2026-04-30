@@ -21,7 +21,7 @@
     "dev": "npm run start -w @hotwheels/mobile",
     "admin": "npm run dev -w @hotwheels/admin",
     "functions": "npx supabase functions serve",
-    "prebuild:android": "npm run prebuild:android -w @hotwheels/mobile",
+    "android:prebuild": "npm run prebuild:android -w @hotwheels/mobile",
     "build:android": "npm run build:android -w @hotwheels/mobile",
     "build:android:release": "npm run build:android:release -w @hotwheels/mobile"
   },
