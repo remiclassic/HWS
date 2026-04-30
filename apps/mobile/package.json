@@ -11,8 +11,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "build:android": "eas build -p android --profile preview",
-    "build:android:prod": "eas build -p android --profile production"
+    "prebuild:android": "expo prebuild --platform android --clean",
+    "build:android": "expo prebuild --platform android --clean && cd android && ./gradlew assembleDebug --no-daemon",
+    "build:android:release": "expo prebuild --platform android --clean && cd android && ./gradlew assembleRelease --no-daemon"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
