@@ -93,6 +93,9 @@ npm run test           # mobile vitest + RLS integration tests
 npm run test:mobile    # just the mobile tests
 npm run test:rls       # just the supabase RLS tests
 npm run lint
+npm run prebuild:android   # expo prebuild --platform android --clean
+npm run build:android      # prebuild + debug APK (no signing needed)
+npm run build:android:release  # prebuild + release APK (needs keystore)
 ```
 
 Mobile (`apps/mobile/`):
@@ -183,10 +186,73 @@ cp apps/admin/.env.production.example  apps/admin/.env.production
 
 ### Build & deploy
 
-- **Mobile app:** `eas build --profile production` (wire an `eas.json` when you're ready). For local-only testing: `npx expo export --platform web` produces a static bundle.
+- **Mobile app:** see [Android builds](#android-builds) below. For web-only testing: `npx expo export --platform web` produces a static bundle.
 - **Admin web app:** `npm run build -w @hotwheels/admin` emits `apps/admin/dist/` — host on Vercel, Netlify, Cloudflare Pages, or behind a reverse proxy. It's a static SPA; add a rewrite rule so every path serves `index.html`.
 - **Database:** `npx supabase db push --project-ref <ref>` pushes `supabase/migrations/*.sql`.
 - **Edge Functions:** `npx supabase functions deploy <name> --project-ref <ref>`. Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) are injected automatically by the runtime — don't set them manually.
+
+## Android builds
+
+No EAS. Builds run with `expo prebuild` (generates the `android/` native project) + Gradle. GitHub's `ubuntu-latest` runner has the Android SDK pre-installed, so CI needs no extra setup.
+
+### Local build (fastest — same as Android Studio)
+
+**Prerequisites:** JDK 17, Android SDK (install via Android Studio), `ANDROID_HOME` set.
+
+```bash
+# First time: copy prod env vars so the bundle points at hosted Supabase
+cp apps/mobile/.env.production.example apps/mobile/.env.production
+
+npm run build:android          # debug APK — no signing, install directly on device
+npm run build:android:release  # release APK — needs a keystore (see below)
+```
+
+Debug APK: `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
+Release APK: `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`
+
+You can also open `apps/mobile/android/` in Android Studio after running `npm run prebuild:android` and build from there.
+
+> On Windows with WSL: run the prebuild in WSL, then open the project from Windows at `\\wsl$\Ubuntu\home\user\HWS\apps\mobile\android`.
+
+### CI/CD (GitHub Actions, free)
+
+`.github/workflows/cd.yml` runs on every push to `main` and on `v*` tags:
+
+| Trigger | Output | Signing |
+|---------|--------|---------|
+| Push to `main` | Debug APK, uploaded as Actions artifact (30-day retention) | None needed |
+| Tag `v1.0.0` | Release AAB, uploaded as Actions artifact (90-day retention) | Keystore secrets required |
+
+Download the APK from the **Actions** tab → select the run → **Artifacts**.
+
+### Release signing (Play Store / `v*` tags)
+
+Generate a keystore once and store it as GitHub secrets:
+
+```bash
+# 1. Generate keystore
+keytool -genkey -v -keystore release.keystore -alias release \
+        -keyalg RSA -keysize 2048 -validity 10000
+
+# 2. Base64-encode it
+base64 release.keystore   # copy the output
+
+# 3. Add 4 secrets in GitHub → Settings → Secrets → Actions:
+#    ANDROID_KEYSTORE_BASE64   ← base64 output from step 2
+#    ANDROID_KEY_ALIAS         ← release
+#    ANDROID_KEY_PASSWORD      ← key password you chose
+#    ANDROID_STORE_PASSWORD    ← store password you chose
+```
+
+Keep `release.keystore` backed up somewhere safe — you need the same key to push updates to the Play Store.
+
+### Sentry source maps (optional)
+
+The `@sentry/react-native` Expo plugin is intentionally removed from `app.json` because the v7.2 plugin always injects a Gradle hook that fails without credentials. To re-enable source map uploads when you have a Sentry project:
+
+1. Add to `app.json` plugins: `["@sentry/react-native", { "organization": "your-org", "project": "your-project" }]`
+2. Add `SENTRY_AUTH_TOKEN` as a GitHub secret
+3. Add `EXPO_PUBLIC_SENTRY_DSN` to `apps/mobile/.env.production`
 
 ## Security & production hardening
 
