@@ -195,13 +195,42 @@ cp apps/admin/.env.production.example  apps/admin/.env.production
 
 No EAS. Builds run with `expo prebuild` (generates the `android/` native project) + Gradle. GitHub's `ubuntu-latest` runner has the Android SDK pre-installed, so CI needs no extra setup.
 
-### Local build (fastest — same as Android Studio)
+### Local build
 
-**Prerequisites:** JDK 17, Android SDK (install via Android Studio), `ANDROID_HOME` set.
+#### One-time setup (WSL / Ubuntu)
 
 ```bash
-# First time: copy prod env vars so the bundle points at hosted Supabase
-cp apps/mobile/.env.production.example apps/mobile/.env.production
+# JDK 17
+sudo apt update && sudo apt install -y openjdk-17-jdk
+
+# Android command-line tools
+mkdir -p ~/android-sdk/cmdline-tools && cd ~/android-sdk/cmdline-tools
+wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+unzip commandlinetools-linux-11076708_latest.zip
+mv cmdline-tools latest
+cd ~
+
+# Add to ~/.bashrc (run once — opens a new terminal to take effect)
+echo 'export ANDROID_HOME=$HOME/android-sdk' >> ~/.bashrc
+echo 'export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/36.0.0' >> ~/.bashrc
+source ~/.bashrc
+
+# Accept licenses and install SDK components (~500 MB, takes a few minutes)
+yes | sdkmanager --licenses
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+```
+
+> **Note:** if `echo >> ~/.bashrc` gives `Permission denied`, run `chmod 644 ~/.bashrc` first.
+
+#### Building
+
+```bash
+# First time only: create the prod env file
+cat > apps/mobile/.env.production << 'EOF'
+EXPO_PUBLIC_ENV=production
+EXPO_PUBLIC_SUPABASE_URL=https://gvlnnjcdqpxqyouwypyq.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_IDL4VIURGr0sOZwpHXVZJw_WeI6xm0N
+EOF
 
 npm run build:android          # debug APK — no signing, install directly on device
 npm run build:android:release  # release APK — needs a keystore (see below)
@@ -210,9 +239,14 @@ npm run build:android:release  # release APK — needs a keystore (see below)
 Debug APK: `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
 Release APK: `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`
 
-You can also open `apps/mobile/android/` in Android Studio after running `npm run prebuild:android` and build from there.
+Install on a connected phone:
+```bash
+adb install apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-> On Windows with WSL: run the prebuild in WSL, then open the project from Windows at `\\wsl$\Ubuntu\home\user\HWS\apps\mobile\android`.
+> **Re-run prebuild when:** you change `app.json`, add/remove a native package, or upgrade Expo. Pure JS changes don't need it — just rebuild with Gradle.
+
+> **`expo prebuild --clean` wipes the source files if something goes wrong.** The files are tracked in git — run `git restore apps/mobile/` to get them back instantly.
 
 ### CI/CD (GitHub Actions, free)
 
