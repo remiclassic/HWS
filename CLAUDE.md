@@ -129,6 +129,8 @@ Outstanding (nice-to-have, not blocking):
 - **ConfirmDialog** replaces `Alert.alert`-with-buttons (buttons don't fire `onPress` on web) for Sign out, Delete account, and admin actions.
 - **Route registration** fixed: `garage-item/[id]` → `garage-item/[id]/index`.
 - **`useSession`** wipes query cache only on identity change, not on every token refresh.
+- **React singleton in Metro.** `expo-router@6` declares `peer react: "*"`, causing npm to nest `react@19.2.5` in `apps/mobile/node_modules/` even when the root pins `react@19.1.0`. `extraNodeModules` loses to local resolution; `resolver.resolveRequest` in `metro.config.js` intercepts first and forces all `react`/`react-dom`/`react-native` imports to the root copy. `react` and `react-dom` are pinned without `^` in `apps/mobile/package.json`; `react-test-renderer` is an explicit devDep for the same reason.
+- **Release build env vars.** `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` are read by Metro at bundle time from `.env.production` (git-ignored; copy from `.env.production.example`). The `build:android:release` script sets `NODE_ENV=production` explicitly so Metro loads the right env file rather than `.env.local`.
 
 ## Conventions
 

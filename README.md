@@ -184,11 +184,34 @@ cp apps/admin/.env.production.example  apps/admin/.env.production
 
 **Only ever put the `anon` / `publishable` key in these files.** Anon keys are designed to ship to the client — access control is enforced by RLS, not by key secrecy. The **service-role key** and the **database password** are real secrets and belong only in the Supabase dashboard / Edge Function runtime.
 
+### Database (first deploy)
+
+The hosted Supabase project starts empty — you must push the schema before the app works. Your project ref is the subdomain of your Supabase URL (e.g. `https://abcdefgh.supabase.co` → ref is `abcdefgh`).
+
+```bash
+npx supabase login                                  # opens browser to authenticate
+npx supabase link --project-ref <your-project-ref>  # links this repo to the hosted project
+npx supabase db push                                # applies all migrations (schema + RLS + triggers)
+```
+
+After this the tables exist but there is no seed data — the local seed (`supabase/seed.sql`) is for dev only. Add cars via the admin web app and create real users through normal signup.
+
+> **If you see "could not find table public.X in the schema cache"** in the app, the migrations haven't been pushed yet. Run `npx supabase db push` again.
+
+> **Supabase free tier pauses projects** after ~1 week of inactivity. If the app returns network errors, open the Supabase dashboard and click "Restore project" — it takes about 2 minutes to wake up.
+
+### Email confirmation redirect
+
+After signup Supabase sends a confirmation email. For the link to deep-link back into the mobile app instead of `localhost:3000`, configure the Supabase dashboard:
+
+**Authentication → URL Configuration:**
+- **Site URL:** `hotwheels-spotter://`
+- **Redirect URLs:** add `hotwheels-spotter://**`
+
 ### Build & deploy
 
 - **Mobile app:** see [Android builds](#android-builds) below. For web-only testing: `npx expo export --platform web` produces a static bundle.
 - **Admin web app:** `npm run build -w @hotwheels/admin` emits `apps/admin/dist/` — host on Vercel, Netlify, Cloudflare Pages, or behind a reverse proxy. It's a static SPA; add a rewrite rule so every path serves `index.html`.
-- **Database:** `npx supabase db push --project-ref <ref>` pushes `supabase/migrations/*.sql`.
 - **Edge Functions:** `npx supabase functions deploy <name> --project-ref <ref>`. Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) are injected automatically by the runtime — don't set them manually.
 
 ## Android builds
@@ -355,6 +378,36 @@ base64 release.keystore   # copy the output
 
 Keep `release.keystore` backed up somewhere safe — you need the same key to push updates to the Play Store.
 
+### Troubleshooting Android builds
+
+#### `TypeError: Cannot read property 'useMemo' of null` (app crashes immediately)
+
+Two React instances are being bundled — `react-native`'s internal renderer expects one exact version and crashes when it finds another.
+
+**Root cause:** `expo-router@6` declares `peer react: "*"`, which causes npm to nest `react@19.2.5` inside `apps/mobile/node_modules/`. Metro's normal resolver finds that copy before the pinned root copy.
+
+**Fix already applied:** `apps/mobile/metro.config.js` uses `resolver.resolveRequest` to intercept all `react` / `react-dom` / `react-native` imports and redirect them to the single root `node_modules` copy. If you see this error again after upgrading packages, clear Metro's cache:
+
+```bash
+cd apps/mobile && npx expo start --clear
+```
+
+Also make sure `react` and `react-dom` are pinned to an exact version (no `^`) in `apps/mobile/package.json` matching the version react-native ships with.
+
+---
+
+#### `Error: EXPO_PUBLIC_SUPABASE_URL must be set for release builds`
+
+The production env file is missing — it's git-ignored and must be created locally before building.
+
+```bash
+cp apps/mobile/.env.production.example apps/mobile/.env.production
+```
+
+The example file already contains the correct hosted Supabase URL and anon key. Release builds (`npm run build:android:release`) set `NODE_ENV=production` so Metro loads `.env.production` automatically.
+
+---
+
 ### Sentry source maps (optional)
 
 The `@sentry/react-native` Expo plugin is intentionally removed from `app.json` because the v7.2 plugin always injects a Gradle hook that fails without credentials. To re-enable source map uploads when you have a Sentry project:
@@ -451,3 +504,188 @@ The local DB user/password (`postgres` / `postgres`) is a published Supabase-CLI
 - Lint runs with `--max-warnings 0`.
 - Drizzle is the only migration authoring tool. Don't hand-edit `supabase/migrations/*.sql` after generation unless adding RLS policies or data migrations — keep the diff reviewable.
 - Keep `packages/shared/src/gamification.ts` in sync if you change XP/achievement rules — it's shared with the Edge Functions.
+
+## Android framework alternatives
+
+The current stack is Expo (React Native + expo-router). These are the viable paths if you ever need to move to a different Android framework, along with how the existing design system maps across.
+
+**Design system tokens** (`apps/mobile/lib/theme.ts`) that carry forward to any target:
+
+| Token | Hex |
+|---|---|
+| Background | `#071422` |
+| Surface / card | `#132A45` |
+| Primary red | `#D81E2A` |
+| Sky blue accent | `#1FA6F0` |
+| Track orange | `#FF7A1A` |
+| Racing yellow | `#FFD400` |
+| Text primary | `#F5F8FC` |
+| Text secondary | `#A8BDD4` |
+| Border default | `#2A4566` |
+
+---
+
+### TypeScript paths
+
+#### Bare React Native (lowest friction)
+
+Strip Expo managed workflow, keep all TS/RN code. Your entire component library, `theme.ts`, and `lib/api.ts` carry over unchanged. Replace Expo-specific packages with community equivalents:
+
+| Expo package | Bare RN replacement |
+|---|---|
+| `expo-router` | `@react-navigation/native` + `@react-navigation/bottom-tabs` |
+| `expo-haptics` | `react-native-haptic-feedback` |
+| `expo-image-picker` | `react-native-image-picker` |
+| `expo-image-manipulator` | `react-native-image-resizer` |
+| `expo-camera` / barcode | `react-native-vision-camera` + `vision-camera-code-scanner` |
+
+Run `npx expo prebuild --platform android --clean` to generate the native project, then eject by removing managed config from `app.json`. Everything in `apps/mobile/app/`, `components/`, and `lib/` stays as-is.
+
+**Effort:** Low. **Code reuse:** ~95%.
+
+---
+
+#### NativeScript + TypeScript
+
+TypeScript compiled to real native Android Views (no WebView, no JS bridge for UI). Supports Angular, Vue, React, or plain TS templates.
+
+Design tokens from `theme.ts` carry over as constants. Every component needs a full rewrite in NativeScript's layout system:
+
+| Current (React Native) | NativeScript equivalent |
+|---|---|
+| `View` / `StyleSheet` | `StackLayout`, `GridLayout` + CSS |
+| `Text` | `Label` |
+| `FlatList` | `ListView` / `CollectionView` |
+| `Pressable` + scale animation | `Button` / tap gesture + `Animation` API |
+| `expo-router` bottom tabs | `TabView` |
+| `expo-haptics` | `@nativescript/haptics` |
+| `react-native-reanimated` | `Animation` class / `@nativescript/animated-circle` |
+
+**Effort:** High — full component rewrite. **Code reuse:** tokens only.
+
+---
+
+#### Capacitor + Ionic (WebView-based)
+
+Your React/TS code runs in a full-screen WebView wrapped as an APK. Not truly native UI — not viable for animation-heavy screens (the scan screen, garage FlatList with `FadeInDown` entering animations, etc.).
+
+Only consider this if the goal is a quick web-to-Android wrap of `apps/admin/` or a stripped-down informational view.
+
+**Effort:** Medium. **Code reuse:** high for web-targeted code only.
+
+---
+
+### Kotlin path — Jetpack Compose
+
+Google's modern declarative UI toolkit for Android. Closest mental model to React: composable functions, state-driven re-renders, `remember {}` ≈ `useState`. Best-in-class native Android performance; camera/barcode via CameraX + ML Kit is first-class.
+
+**Design system in Compose:**
+
+```kotlin
+object HWSColors {
+    val bg            = Color(0xFF071422)
+    val bgElevated    = Color(0xFF132A45)
+    val accent        = Color(0xFFD81E2A)
+    val accentPressed = Color(0xFFB81522)
+    val field         = Color(0xFF1FA6F0)
+    val trackOrange   = Color(0xFFFF7A1A)
+    val accentYellow  = Color(0xFFFFD400)
+    val text          = Color(0xFFF5F8FC)
+    val textSecondary = Color(0xFFA8BDD4)
+    val border        = Color(0xFF2A4566)
+}
+
+object HWSShape {
+    val radiusMd = 14.dp
+    val radiusLg = 20.dp
+}
+```
+
+**Component translations:**
+
+```kotlin
+// PrimaryButton.tsx → @Composable
+@Composable
+fun PrimaryButton(label: String, onClick: () -> Unit, enabled: Boolean = true) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.95f else 1f, label = "scale")
+    val haptic = LocalHapticFeedback.current
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(HWSShape.radiusMd))
+            .background(if (enabled) HWSColors.accent else HWSColors.accent.copy(alpha = 0.38f))
+            .clickable(interactionSource, indication = null, enabled = enabled) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .fillMaxWidth()
+    ) {
+        Text(label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+// Card.tsx → @Composable
+@Composable
+fun HWSCard(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        shape = RoundedCornerShape(HWSShape.radiusMd),
+        colors = CardDefaults.cardColors(containerColor = HWSColors.bgElevated),
+        border = BorderStroke(0.5.dp, HWSColors.border),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            if (title != null) {
+                Text(
+                    title.uppercase(),
+                    color = HWSColors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.1.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+            content()
+        }
+    }
+}
+```
+
+**Animation mapping:**
+
+| react-native-reanimated | Compose equivalent |
+|---|---|
+| `FadeInDown` entering | `AnimatedVisibility(enter = fadeIn() + slideInVertically())` |
+| `withSpring` | `spring()` in `animateFloatAsState` |
+| `LinearTransition` | `animateItemPlacement()` on `LazyColumn` items |
+| `useSharedValue` + `withTiming` | `Animatable` / `animateFloatAsState` |
+
+**Navigation (replaces expo-router):**
+
+```kotlin
+// Bottom tab equivalent of apps/mobile/app/(tabs)/_layout.tsx
+NavHost(navController, startDestination = "catalog") {
+    composable("catalog") { CatalogScreen() }
+    composable("garage")  { GarageScreen() }
+    composable("scan")    { ScanScreen() }
+}
+```
+
+**Backend:** use `supabase-kt` (official Kotlin client — `io.github.jan-tennert.supabase`). Auth, Postgres, Storage, and Realtime modules all available. Same Supabase project, same RLS, same Edge Functions.
+
+**Effort:** High (full rewrite in Kotlin). **Code reuse:** design tokens + Supabase schema + Edge Functions. **Result:** best possible native Android experience.
+
+---
+
+### Summary
+
+| Goal | Best pick |
+|---|---|
+| Stay in TypeScript, minimal change | Bare React Native (eject from Expo) |
+| TypeScript with full native UI control | NativeScript |
+| Best native Android UX | Jetpack Compose (Kotlin) |
+| Web-first, Android as wrapper | Capacitor + Ionic |

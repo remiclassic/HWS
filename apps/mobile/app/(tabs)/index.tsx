@@ -588,7 +588,7 @@ export default function SearchScreen() {
           <View style={styles.bannerErr}>
             <IconCloudOff color={theme.danger} size={20} />
             <Text style={styles.bannerErrTxt}>
-              Cannot reach API. Start the server (`npm run dev -w @hotwheels/api`) and check your network.
+              Could not load catalog. Check your network connection and try again.
             </Text>
           </View>
         ) : null}
