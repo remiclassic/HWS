@@ -183,6 +183,17 @@ export const userGamification = pgTable("user_gamification", {
   barcodeScanCount: integer("barcode_scan_count").notNull().default(0),
 });
 
+/**
+ * Rule + XP for each achievement, mirroring ACHIEVEMENT_CATALOG in packages/shared.
+ * Read by public.sync_user_achievements() (see the achievements_sync migration).
+ */
+export const achievementDefinitions = pgTable("achievement_definitions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  ruleKind: varchar("rule_kind", { length: 32 }).notNull(),
+  threshold: integer("threshold").notNull(),
+  xp: integer("xp").notNull(),
+});
+
 export const userAchievements = pgTable(
   "user_achievements",
   {
