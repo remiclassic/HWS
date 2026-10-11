@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,11 +13,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { PrimaryButton } from "../../../components/ui/PrimaryButton";
 import { theme } from "../../../lib/theme";
 import { uploadGarageItemPhoto } from "../../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
 import { getIsOnline } from "../../../lib/network";
 import { preparePhotoForUpload } from "../../../lib/photoPipeline";
+import { useToast } from "../../../contexts/ToastContext";
 
 function guessMimeFromUri(uri: string): string {
   const lower = uri.toLowerCase();
@@ -35,6 +36,7 @@ export default function GarageItemPhotoScreen() {
   const [ready, setReady] = useState(false);
   const [, setTick] = useState(0);
   const qc = useQueryClient();
+  const { show: showToast, showError } = useToast();
 
   const upload = useMutation({
     mutationFn: async (input: { uri: string; mime: string }) => {
@@ -61,12 +63,14 @@ export default function GarageItemPhotoScreen() {
       await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
-        Alert.alert("Offline", "Photo upload queued for when you're online.");
+        showToast({ message: "Offline — photo upload queued for when you’re back online." });
+      } else {
+        showToast({ message: "Photo added" });
       }
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)/garage");
     },
-    onError: (e) => Alert.alert("Upload failed", e instanceof Error ? e.message : String(e)),
+    onError: (e) => showError("Upload failed", e),
   });
 
   const onShutter = useCallback(() => {
@@ -76,16 +80,16 @@ export default function GarageItemPhotoScreen() {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         const pic = await camRef.current?.takePictureAsync({ quality: 0.9 });
         if (!pic?.uri) {
-          Alert.alert("Camera", "Could not capture a photo. Try again.");
+          showError("Could not capture a photo. Try again.");
           return;
         }
         const prepared = await preparePhotoForUpload(pic.uri, guessMimeFromUri(pic.uri), pic.width, pic.height);
         upload.mutate({ uri: prepared.uri, mime: prepared.mimeType });
       } catch (e) {
-        Alert.alert("Camera", e instanceof Error ? e.message : String(e));
+        showError("Camera error", e);
       }
     })();
-  }, [ready, upload]);
+  }, [ready, upload, showError]);
 
   const pickFromLibrary = useCallback(() => {
     if (upload.isPending) return;
@@ -93,7 +97,7 @@ export default function GarageItemPhotoScreen() {
       try {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert("Photos", "Photo library permission is required.");
+          showError("Photo library permission is required.");
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -112,10 +116,10 @@ export default function GarageItemPhotoScreen() {
         );
         upload.mutate({ uri: prepared.uri, mime: prepared.mimeType });
       } catch (e) {
-        Alert.alert("Pick photo", e instanceof Error ? e.message : String(e));
+        showError("Could not use that photo", e);
       }
     })();
-  }, [upload]);
+  }, [upload, showError]);
 
   if (!garageItemId) {
     return (
@@ -132,16 +136,10 @@ export default function GarageItemPhotoScreen() {
         <MaterialCommunityIcons name="image-plus" size={48} color={theme.accent} />
         <Text style={styles.title}>Upload a photo</Text>
         <Text style={styles.sub}>Choose an image from your device — it&apos;s resized and metadata stripped before upload.</Text>
-        <Pressable style={styles.btn} onPress={pickFromLibrary} disabled={upload.isPending}>
-          {upload.isPending ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.btnTxt}>Choose file</Text>
-          )}
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={() => router.back()}>
-          <Text style={styles.btnGhostTxt}>Cancel</Text>
-        </Pressable>
+        <View style={styles.btnStack}>
+          <PrimaryButton label="Choose a photo" onPress={pickFromLibrary} loading={upload.isPending} />
+          <PrimaryButton label="Cancel" variant="ghost" onPress={() => router.back()} />
+        </View>
       </View>
     );
   }
@@ -160,20 +158,16 @@ export default function GarageItemPhotoScreen() {
         <MaterialCommunityIcons name="camera-outline" size={44} color={theme.accent} />
         <Text style={styles.title}>Camera access</Text>
         <Text style={styles.sub}>Allow the camera to snap a photo, or pick one from your library.</Text>
-        <Pressable
-          style={styles.btn}
-          onPress={() => {
-            void requestPermission().then(() => setTick((t) => t + 1));
-          }}
-        >
-          <Text style={styles.btnTxt}>Allow camera</Text>
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={pickFromLibrary}>
-          <Text style={styles.btnGhostTxt}>Pick from library</Text>
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={() => router.back()}>
-          <Text style={styles.btnGhostTxt}>Cancel</Text>
-        </Pressable>
+        <View style={styles.btnStack}>
+          <PrimaryButton
+            label="Allow camera"
+            onPress={() => {
+              void requestPermission().then(() => setTick((t) => t + 1));
+            }}
+          />
+          <PrimaryButton label="Pick from library" variant="ghost" onPress={pickFromLibrary} />
+          <PrimaryButton label="Cancel" variant="ghost" onPress={() => router.back()} />
+        </View>
       </View>
     );
   }
@@ -221,6 +215,7 @@ export default function GarageItemPhotoScreen() {
 }
 
 const styles = StyleSheet.create({
+  btnStack: { width: "100%", maxWidth: 320, gap: theme.spaceSm, marginTop: theme.spaceSm },
   root: { flex: 1, backgroundColor: "#000" },
   camera: { flex: 1 },
   overlay: {

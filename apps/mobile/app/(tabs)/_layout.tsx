@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Alert, Platform, Pressable, Share, View } from "react-native";
+import { Platform, Pressable, Share, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
@@ -9,6 +9,7 @@ import { AppTabBar } from "../../components/navigation/AppTabBar";
 import { IconShareExport, IconSpotterTab, IconGarageTab } from "../../components/icons/AppIcons";
 import { fetchGarage } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import { useToast } from "../../contexts/ToastContext";
 
 const headerActionsRowStyle = {
   flexDirection: "row" as const,
@@ -32,10 +33,11 @@ function SettingsHeaderButton() {
 
 function GarageExportHeaderButton() {
   const garageQuery = useQuery({ queryKey: ["garage"] as const, queryFn: fetchGarage });
+  const { show: showToast, showError } = useToast();
   const onPress = useCallback(() => {
     const items = garageQuery.data?.items;
     if (!items?.length) {
-      Alert.alert("Nothing to export", "Add cars to your garage first.");
+      showToast({ message: "Nothing to export yet — add cars to your garage first." });
       return;
     }
     const payload = JSON.stringify(
@@ -56,12 +58,14 @@ function GarageExportHeaderButton() {
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 0);
       } catch (e) {
-        Alert.alert("Export failed", e instanceof Error ? e.message : String(e));
+        showError("Export failed", e);
+        return;
       }
+      showToast({ message: "Garage export downloaded" });
       return;
     }
     void Share.share({ message: payload, title: "Hot Wheels garage export" });
-  }, [garageQuery.data?.items]);
+  }, [garageQuery.data?.items, showToast, showError]);
   return (
     <Pressable
       onPress={onPress}

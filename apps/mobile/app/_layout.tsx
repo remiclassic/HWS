@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { OnboardingNavigationGate } from "../components/navigation/OnboardingNavigationGate";
 import { OnboardingProvider, useOnboarding } from "../contexts/OnboardingContext";
+import { ToastProvider } from "../contexts/ToastContext";
 import { useSession } from "../lib/auth";
 import { asyncStoragePersister, queryClient } from "../lib/queryClient";
 import { theme } from "../lib/theme";
@@ -152,7 +153,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
         <OnboardingProvider>
-          <RootLayoutBody />
+          <ToastProvider>
+            <RootLayoutBody />
+          </ToastProvider>
         </OnboardingProvider>
       </PersistQueryClientProvider>
     </SafeAreaProvider>

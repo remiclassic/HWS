@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -18,11 +17,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { UserCarCondition, UserCarStatus } from "@hotwheels/shared";
 import { Card } from "../../../components/ui/Card";
-import { ConfidenceBar } from "../../../components/ui/ConfidenceBar";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { FilterChip } from "../../../components/ui/FilterChip";
 import { HuntBadge } from "../../../components/ui/HuntBadge";
 import { LineChip } from "../../../components/ui/LineChip";
 import { PrimaryButton } from "../../../components/ui/PrimaryButton";
+import { QuantityStepper } from "../../../components/ui/QuantityStepper";
 import { useResponsiveLayout } from "../../../hooks/useResponsiveLayout";
 import { OfflineBanner } from "../../../components/ui/OfflineBanner";
 import { useGarageQueueDepth } from "../../../hooks/useGarageQueueDepth";
@@ -31,6 +31,7 @@ import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMut
 import { getIsOnline, useOnline } from "../../../lib/network";
 import { garageConditionChipTint, garageStatusChipTint } from "../../../lib/garageFormChips";
 import { theme, themedScrollIndicatorProps } from "../../../lib/theme";
+import { useToast } from "../../../contexts/ToastContext";
 
 const STATUSES: UserCarStatus[] = ["Owned", "Want", "Duplicate"];
 const CONDITIONS: UserCarCondition[] = ["Carded", "Loose", "Custom"];
@@ -50,6 +51,7 @@ export default function GarageItemEditScreen() {
   const qc = useQueryClient();
   const online = useOnline();
   const pendingGarage = useGarageQueueDepth();
+  const { show: showToast, showError } = useToast();
 
   const garageQuery = useQuery({
     queryKey: ["garage"] as const,
@@ -100,14 +102,12 @@ export default function GarageItemEditScreen() {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (res.queued) {
-        Alert.alert("Offline", "Update queued for sync.");
-      } else {
-        Alert.alert("Updated", "Garage entry saved");
-      }
+      showToast({
+        message: res.queued ? "Offline — update queued for sync." : "Garage entry saved",
+      });
       router.back();
     },
-    onError: (e) => Alert.alert("Could not save", String(e)),
+    onError: (e) => showError("Could not save", e),
   });
 
   const delPhoto = useMutation({
@@ -129,24 +129,29 @@ export default function GarageItemEditScreen() {
       await qc.invalidateQueries({ queryKey: ["gamification"] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (res.queued) {
-        Alert.alert("Offline", "Photo removal queued for sync.");
+        showToast({ message: "Offline — photo removal queued for sync." });
+      } else {
+        showToast({ message: "Photo removed" });
       }
     },
-    onError: (e) => Alert.alert("Could not remove photo", String(e)),
+    onError: (e) => showError("Could not remove photo", e),
   });
 
-  const confirmRemovePhoto = useCallback(
-    (photoId: string) => {
-      Alert.alert("Remove photo?", "This deletes the image from your garage entry.", [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => delPhoto.mutate(photoId),
-        },
-      ]);
-    },
-    [delPhoto],
+  const [photoToRemove, setPhotoToRemove] = useState<string | null>(null);
+  const confirmRemovePhoto = setPhotoToRemove;
+  const removePhotoDialog = (
+    <ConfirmDialog
+      visible={photoToRemove != null}
+      title="Remove photo?"
+      message="This deletes the image from your garage entry."
+      confirmLabel="Remove"
+      destructive
+      onConfirm={() => {
+        if (photoToRemove) delPhoto.mutate(photoToRemove);
+        setPhotoToRemove(null);
+      }}
+      onCancel={() => setPhotoToRemove(null)}
+    />
   );
 
   const wideColumn =
@@ -204,7 +209,15 @@ export default function GarageItemEditScreen() {
                 {car.year}
                 {car.series ? ` · ${car.series}` : ""}
               </Text>
-              <ConfidenceBar score={car.confidence_score} label="Confidence" />
+              <Pressable
+                onPress={() => router.push(`/car/${row.car_id}`)}
+                style={styles.refLink}
+                accessibilityRole="link"
+                accessibilityLabel="View reference"
+              >
+                <Text style={styles.refLinkTxt}>View reference</Text>
+                <MaterialCommunityIcons name="chevron-right" size={20} color={theme.accentSecondary} />
+              </Pressable>
             </>
           ) : null}
         </Card>
@@ -276,14 +289,9 @@ export default function GarageItemEditScreen() {
         </View>
 
         <Text style={styles.chipLabel}>Quantity</Text>
-        <TextInput
-          value={quantityStr}
-          onChangeText={setQuantityStr}
-          keyboardType="number-pad"
-          style={styles.input}
-          placeholder="1"
-          placeholderTextColor={theme.textMuted}
-        />
+        <View style={styles.stepperWrap}>
+          <QuantityStepper value={quantityStr} onChange={setQuantityStr} />
+        </View>
 
         <Text style={styles.chipLabel}>Notes</Text>
         <TextInput
@@ -314,11 +322,22 @@ export default function GarageItemEditScreen() {
           />
         </View>
       </View>
+      {removePhotoDialog}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  stepperWrap: { marginBottom: theme.spaceLg },
+  refLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 2,
+    minHeight: theme.touchTargetMin - 8,
+    marginTop: theme.spaceSm,
+  },
+  refLinkTxt: { fontSize: 15, fontWeight: "800", color: theme.accentSecondary },
   root: { flex: 1, backgroundColor: theme.bg },
   scroll: { padding: theme.spaceLg, paddingBottom: theme.space2xl },
   center: {

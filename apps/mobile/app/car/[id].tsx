@@ -1,6 +1,5 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import {
-  Alert,
   Linking,
   Modal,
   Pressable,
@@ -26,10 +25,12 @@ import { FilterChip } from "../../components/ui/FilterChip";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { LineChip } from "../../components/ui/LineChip";
 import { PrimaryButton } from "../../components/ui/PrimaryButton";
+import { QuantityStepper } from "../../components/ui/QuantityStepper";
 import { SourcePill } from "../../components/ui/SourcePill";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
-import { addToGarage, AlreadyInGarageError, fetchCar, submitCarDataReport } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
+import { addToGarage, AlreadyInGarageError, fetchCar, fetchGarage, submitCarDataReport } from "../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../lib/garageMutationQueue";
 import { getIsOnline, useOnline } from "../../lib/network";
 import { OfflineBanner } from "../../components/ui/OfflineBanner";
@@ -148,6 +149,15 @@ export default function CarDetailScreen() {
   const [reportFieldPath, setReportFieldPath] = useState("");
   const [savedOk, setSavedOk] = useState<"online" | "queued" | null>(null);
 
+  const { show: showToast, showError } = useToast();
+
+  // Shares the garage cache, so this is free when the user came from Browse or My Garage.
+  const garageQuery = useQuery({ queryKey: ["garage"] as const, queryFn: fetchGarage, staleTime: 30_000 });
+  const garageEntry = useMemo(
+    () => garageQuery.data?.items.find((i) => i.car_id === carId),
+    [garageQuery.data?.items, carId],
+  );
+
   const q = useQuery({
     queryKey: ["car", carId] as const,
     queryFn: () => fetchCar(carId),
@@ -184,10 +194,11 @@ export default function CarDetailScreen() {
     },
     onError: (e) => {
       if (e instanceof AlreadyInGarageError) {
-        Alert.alert("Already in garage", "This car is already in your garage. Open My Garage to update it.");
+        void qc.invalidateQueries({ queryKey: ["garage"] });
+        showToast({ message: "This car is already in your garage." });
         return;
       }
-      Alert.alert("Could not save", e instanceof Error ? e.message : String(e));
+      showError("Could not save", e);
     },
   });
 
@@ -202,9 +213,13 @@ export default function CarDetailScreen() {
       setReportMessage("");
       setReportFieldPath("");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Thanks", "Your report was sent. We use these to improve the catalog.");
+      showToast({ message: "Thanks — your report was sent." });
     },
-    onError: (e) => Alert.alert("Could not send report", String(e)),
+    // The toast would sit behind the report modal, so close it first; the draft is kept.
+    onError: (e) => {
+      setReportOpen(false);
+      showError("Could not send report", e);
+    },
   });
 
   const data = q.data;
@@ -325,6 +340,68 @@ export default function CarDetailScreen() {
           ) : null}
 
           <TreasureHuntStrip huntType={data.treasure_hunt_type} carId={carId} />
+
+          {garageEntry ? (
+            <Pressable
+              onPress={() => router.push(`/garage-item/${garageEntry.id}`)}
+              style={({ pressed }) => [styles.inGarageCard, pressed && styles.inGarageCardPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="In your garage. Edit entry"
+            >
+              <MaterialCommunityIcons name="check-circle" size={24} color={theme.officialText} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.inGarageTitle}>In your garage</Text>
+                <Text style={styles.inGarageMeta} numberOfLines={1}>
+                  {garageEntry.status} · {garageEntry.condition} · qty {garageEntry.quantity}
+                </Text>
+              </View>
+              <Text style={styles.inGarageEdit}>Edit</Text>
+              <MaterialCommunityIcons name="chevron-right" size={22} color={theme.textMuted} />
+            </Pressable>
+          ) : (
+            <Card title="Add to My Garage" style={styles.section}>
+              <Text style={styles.sectionHint}>Pick how this copy fits your collection.</Text>
+              <Text style={styles.chipLabel}>Status</Text>
+              <View style={styles.chipWrap}>
+                {STATUSES.map((s) => (
+                  <FilterChip
+                    key={s}
+                    label={s}
+                    selected={status === s}
+                    onPress={() => setStatus(s)}
+                    a11yLabel={`Garage status: ${s}`}
+                    selectedTint={garageStatusChipTint[s]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.chipLabel}>Condition</Text>
+              <View style={styles.chipWrap}>
+                {CONDITIONS.map((c) => (
+                  <FilterChip
+                    key={c}
+                    label={c}
+                    selected={condition === c}
+                    onPress={() => setCondition(c)}
+                    a11yLabel={`Condition: ${c}`}
+                    selectedTint={garageConditionChipTint[c]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.chipLabel}>Quantity</Text>
+              <View style={styles.stepperWrap}>
+                <QuantityStepper value={quantityStr} onChange={setQuantityStr} />
+              </View>
+              <Text style={styles.chipLabel}>Notes</Text>
+              <TextInput
+                value={garageNotes}
+                onChangeText={setGarageNotes}
+                style={[styles.garageInput, styles.garageNotesInput]}
+                placeholder="Optional — where you found it, trades, condition detail…"
+                placeholderTextColor={theme.textMuted}
+                multiline
+              />
+            </Card>
+          )}
 
           {data.description ? (
             <Card style={styles.section}>
@@ -476,13 +553,8 @@ export default function CarDetailScreen() {
                   <PrimaryButton label="Cancel" variant="ghost" onPress={() => setReportOpen(false)} />
                   <PrimaryButton
                     label={report.isPending ? "Sending…" : "Send report"}
-                    onPress={() => {
-                      if (!reportMessage.trim()) {
-                        Alert.alert("Add details", "Please describe what looks incorrect.");
-                        return;
-                      }
-                      report.mutate();
-                    }}
+                    onPress={() => report.mutate()}
+                    disabled={!reportMessage.trim()}
                     loading={report.isPending}
                   />
                 </View>
@@ -490,89 +562,45 @@ export default function CarDetailScreen() {
             </Pressable>
           </Modal>
 
-          <Card title="Add to My Garage" style={[styles.section, styles.garageSection]}>
-            <Text style={styles.sectionHint}>Pick how this copy fits your collection.</Text>
-            <Text style={styles.chipLabel}>Status</Text>
-            <View style={styles.chipWrap}>
-              {STATUSES.map((s) => (
-                <FilterChip
-                  key={s}
-                  label={s}
-                  selected={status === s}
-                  onPress={() => setStatus(s)}
-                  a11yLabel={`Garage status: ${s}`}
-                  selectedTint={garageStatusChipTint[s]}
-                />
-              ))}
-            </View>
-            <Text style={styles.chipLabel}>Condition</Text>
-            <View style={styles.chipWrap}>
-              {CONDITIONS.map((c) => (
-                <FilterChip
-                  key={c}
-                  label={c}
-                  selected={condition === c}
-                  onPress={() => setCondition(c)}
-                  a11yLabel={`Condition: ${c}`}
-                  selectedTint={garageConditionChipTint[c]}
-                />
-              ))}
-            </View>
-            <Text style={styles.chipLabel}>Quantity</Text>
-            <TextInput
-              value={quantityStr}
-              onChangeText={setQuantityStr}
-              keyboardType="number-pad"
-              style={styles.garageInput}
-              placeholder="1"
-              placeholderTextColor={theme.textMuted}
-            />
-            <Text style={styles.chipLabel}>Notes</Text>
-            <TextInput
-              value={garageNotes}
-              onChangeText={setGarageNotes}
-              style={[styles.garageInput, styles.garageNotesInput]}
-              placeholder="Optional — where you found it, trades, condition detail…"
-              placeholderTextColor={theme.textMuted}
-              multiline
-            />
-          </Card>
         </View>
       </ScrollView>
-      <View
-        style={[
-          styles.saveFooter,
-          {
-            paddingBottom: insets.bottom + theme.spaceMd,
-          },
-        ]}
-      >
-        <View style={[styles.saveFooterInner, wideColumn]}>
-          {savedOk != null && (
-            <View style={styles.savedBanner}>
-              <MaterialCommunityIcons name="check-circle-outline" size={18} color={theme.officialText} />
-              <Text style={styles.savedBannerTxt}>
-                {savedOk === "queued" ? "Queued — will sync when online" : "Added to My Garage"}
-              </Text>
-            </View>
-          )}
-          <PrimaryButton
-            label={add.isPending ? "Saving…" : savedOk != null ? "Saved!" : "Save to garage"}
-            onPress={() => add.mutate()}
-            loading={add.isPending}
-            icon={
-              savedOk != null
-                ? <MaterialCommunityIcons name="check-circle-outline" size={22} color="#fff" />
-                : <MaterialCommunityIcons name="bookmark-plus-outline" size={22} color="#fff" />
-            }
-          />
+      {garageEntry ? null : (
+        <View
+          style={[
+            styles.saveFooter,
+            {
+              paddingBottom: insets.bottom + theme.spaceMd,
+            },
+          ]}
+        >
+          <View style={[styles.saveFooterInner, wideColumn]}>
+            {savedOk != null && (
+              <View style={styles.savedBanner}>
+                <MaterialCommunityIcons name="check-circle-outline" size={18} color={theme.officialText} />
+                <Text style={styles.savedBannerTxt}>
+                  {savedOk === "queued" ? "Queued — will sync when online" : "Added to My Garage"}
+                </Text>
+              </View>
+            )}
+            <PrimaryButton
+              label={add.isPending ? "Saving…" : savedOk != null ? "Saved!" : "Save to garage"}
+              onPress={() => add.mutate()}
+              loading={add.isPending}
+              icon={
+                savedOk != null
+                  ? <MaterialCommunityIcons name="check-circle-outline" size={22} color="#fff" />
+                  : <MaterialCommunityIcons name="bookmark-plus-outline" size={22} color="#fff" />
+              }
+            />
+          </View>
         </View>
-      </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  stepperWrap: { marginBottom: theme.spaceMd },
   root: { flex: 1, backgroundColor: theme.bg },
   scroll: { flex: 1 },
   scrollContent: {
@@ -612,7 +640,21 @@ const styles = StyleSheet.create({
     color: theme.officialText,
   },
   section: { marginTop: theme.spaceLg },
-  garageSection: { marginBottom: theme.spaceSm },
+  inGarageCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spaceMd,
+    marginTop: theme.spaceLg,
+    padding: theme.spaceLg,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.officialBg,
+    borderWidth: 1,
+    borderColor: theme.officialText + "55",
+  },
+  inGarageCardPressed: { opacity: 0.85 },
+  inGarageTitle: { fontSize: 16, fontWeight: "800", color: theme.text },
+  inGarageMeta: { marginTop: 2, fontSize: 14, fontWeight: "600", color: theme.textSecondary },
+  inGarageEdit: { fontSize: 15, fontWeight: "800", color: theme.officialText },
   center: {
     flex: 1,
     justifyContent: "center",

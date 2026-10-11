@@ -2,15 +2,17 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
   type DimensionValue,
+  type TextStyle,
   type ViewStyle,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, {
   Easing,
   FadeInDown,
@@ -37,7 +39,6 @@ import type { CarListItemDto, LineType, TreasureHuntType, UserCarStatus } from "
 import { FilterChip } from "../../components/ui/FilterChip";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { LineChip } from "../../components/ui/LineChip";
-import { ConfidenceBar } from "../../components/ui/ConfidenceBar";
 import { RemoteImage } from "../../components/ui/RemoteImage";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
@@ -83,6 +84,9 @@ const HUNT_FILTERS: { key: TreasureHuntType | "all"; label: string }[] = [
 
 const LIST_BELOW_TAB_EXTRA = 12;
 
+/** Web: the input sits inside a bordered row, so drop the default focus ring. */
+const webInputOutline = { outlineWidth: 0, outlineStyle: "none" } as unknown as TextStyle;
+
 const CarRow = memo(function CarRow({
   item,
   index,
@@ -112,28 +116,33 @@ const CarRow = memo(function CarRow({
         accessibilityRole="button"
         accessibilityLabel={`Open reference: ${item.casting_name}`}
       >
-        <View style={styles.rowTop}>
+        <View style={styles.rowImageWrap}>
           <RemoteImage
             uri={item.primary_image_url}
-            style={[styles.rowThumb, !item.primary_image_url && styles.rowThumbPlaceholder]}
+            style={styles.rowImage}
             accessibilityLabel={item.primary_image_url ? `${item.casting_name} thumbnail` : undefined}
           />
-          <View style={styles.rowTitleBlock}>
-            <Text style={styles.rowTitle} numberOfLines={2}>
-              {item.casting_name}
-            </Text>
-            <View style={styles.chipRow}>
-              <LineChip line={item.line_type} />
-              <HuntBadge type={item.treasure_hunt_type} />
-              {garageStatus != null && <GarageStatusBadge status={garageStatus} />}
+          {!item.primary_image_url ? (
+            <View style={styles.rowImagePlaceholder}>
+              <MaterialCommunityIcons name="car-side" size={30} color={theme.borderStrong} />
             </View>
+          ) : null}
+        </View>
+        <View style={styles.rowTitleBlock}>
+          <Text style={styles.rowTitle} numberOfLines={2}>
+            {item.casting_name}
+          </Text>
+          <Text style={styles.rowMeta} numberOfLines={1}>
+            {item.year}
+            {item.series ? ` · ${item.series}` : ""}
+          </Text>
+          <View style={styles.chipRow}>
+            <LineChip line={item.line_type} />
+            <HuntBadge type={item.treasure_hunt_type} />
+            {garageStatus != null && <GarageStatusBadge status={garageStatus} />}
           </View>
         </View>
-        <Text style={styles.rowMeta} numberOfLines={1}>
-          {item.year}
-          {item.series ? ` · ${item.series}` : ""}
-        </Text>
-        <ConfidenceBar score={item.confidence_score} label="Reference confidence" />
+        <MaterialCommunityIcons name="chevron-right" size={22} color={theme.textMuted} />
       </ReanimatedPressable>
     </Animated.View>
   );
@@ -404,32 +413,30 @@ export default function SearchScreen() {
   const listHeader = useMemo(
     () => (
       <View style={[styles.chrome, chromeWideStyle]}>
-        <View style={styles.heroShell}>
-          <LinearGradient
-            colors={[...theme.heroWashGradientColors]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={styles.heroWash}
-            pointerEvents="none"
+        <View style={styles.searchBox}>
+          <MaterialCommunityIcons name="magnify" size={20} color={theme.textMuted} />
+          <TextInput
+            placeholder="Casting, series, or SKU / UPC"
+            value={q}
+            onChangeText={setQ}
+            style={[styles.searchInput, Platform.OS === "web" && webInputOutline]}
+            placeholderTextColor={theme.inputPlaceholder}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            accessibilityLabel="Search the catalog"
           />
-          <Animated.View entering={FadeInDown.duration(420).delay(40)} style={styles.heroBlock}>
-            <Text style={styles.heroKicker}>Identify in the aisle</Text>
-            <Text style={styles.heroTitle}>Reference search</Text>
-            <Text style={styles.heroSub} numberOfLines={3} ellipsizeMode="tail">
-              Official-first data with clear sources — built for collectors, not resale noise.
-            </Text>
-          </Animated.View>
+          {q ? (
+            <Pressable
+              onPress={() => setQ("")}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <MaterialCommunityIcons name="close-circle" size={18} color={theme.textMuted} />
+            </Pressable>
+          ) : null}
         </View>
-
-        <TextInput
-          placeholder="Casting, series, or numeric SKU / UPC"
-          value={q}
-          onChangeText={setQ}
-          style={styles.input}
-          placeholderTextColor={theme.inputPlaceholder}
-          autoCorrect={false}
-          autoCapitalize="none"
-        />
 
         <Animated.View
           layout={LinearTransition.duration(240).easing(Easing.out(Easing.cubic))}
@@ -587,10 +594,20 @@ export default function SearchScreen() {
         {carsQuery.isError ? (
           <View style={styles.bannerErr}>
             <IconCloudOff color={theme.danger} size={20} />
-            <Text style={styles.bannerErrTxt}>
-              Could not load catalog. Check your network connection and try again.
-            </Text>
+            <Text style={styles.bannerErrTxt}>Could not load the catalog. Check your connection.</Text>
+            <Pressable
+              onPress={() => void carsQuery.refetch()}
+              style={styles.retryBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading catalog"
+            >
+              <Text style={styles.retryBtnTxt}>Retry</Text>
+            </Pressable>
           </View>
+        ) : totalCount > 0 ? (
+          <Text style={styles.resultCount} accessibilityLiveRegion="polite">
+            {totalCount.toLocaleString()} {totalCount === 1 ? "car" : "cars"}
+          </Text>
         ) : null}
       </View>
     ),
@@ -608,7 +625,8 @@ export default function SearchScreen() {
       filterTogglePress,
       resetFilterPress,
       showFilterScrollIndicator,
-      carsQuery.isError,
+      carsQuery,
+      totalCount,
     ],
   );
 
@@ -653,20 +671,6 @@ const styles = StyleSheet.create({
   },
   listFlex: { flex: 1, minHeight: 0 },
   listContent: { paddingHorizontal: theme.spaceLg, paddingTop: theme.spaceMd },
-  heroShell: {
-    position: "relative",
-    borderRadius: theme.radiusLg,
-    overflow: "hidden",
-    marginBottom: theme.spaceLg,
-  },
-  heroWash: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: theme.radiusLg,
-  },
-  heroBlock: {
-    paddingVertical: theme.spaceMd,
-    paddingHorizontal: theme.spaceMd,
-  },
   filterPanel: {
     marginBottom: theme.spaceSm,
     borderRadius: theme.radiusMd,
@@ -764,35 +768,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.textSecondary,
   },
-  heroKicker: {
-    ...theme.typeKicker,
-    color: theme.trackYellow,
-  },
-  heroTitle: {
-    ...theme.typeTitleLg,
-    fontSize: 26,
-    marginTop: 4,
-    color: theme.text,
-    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
-  },
-  heroSub: {
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 22,
-    color: theme.textSecondary,
-    fontWeight: "500",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.borderStrong,
-    borderRadius: theme.radiusMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 12,
-    marginBottom: theme.spaceSm,
-    fontSize: 16,
-    backgroundColor: theme.bgElevated,
-    color: theme.text,
-  },
   inputYear: {
     borderWidth: 1,
     borderColor: theme.borderStrong,
@@ -857,32 +832,62 @@ const styles = StyleSheet.create({
     borderColor: theme.dangerBorder,
   },
   bannerErrTxt: { flex: 1, color: theme.danger, fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spaceSm,
+    minHeight: 48,
+    paddingHorizontal: theme.spaceMd,
+    marginBottom: theme.spaceSm,
+    borderRadius: theme.radiusMd,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+    backgroundColor: theme.bgElevated,
+  },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 16, color: theme.text, paddingVertical: 10 },
+  resultCount: {
+    marginTop: theme.spaceSm,
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.textSecondary,
+  },
+  retryBtn: {
+    paddingHorizontal: theme.spaceMd,
+    paddingVertical: 6,
+    borderRadius: theme.radiusSm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.danger,
+  },
+  retryBtnTxt: { color: theme.danger, fontWeight: "800", fontSize: 13 },
   rowCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spaceMd,
     backgroundColor: theme.bgElevated,
     borderRadius: theme.radiusMd,
-    padding: theme.spaceLg,
+    padding: theme.spaceMd,
     marginBottom: theme.spaceMd,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     ...theme.shadow.card,
   },
-  rowTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.spaceMd },
-  rowThumb: {
-    width: 76,
-    height: 52,
+  rowImageWrap: {
+    width: 104,
+    height: 78,
     borderRadius: theme.radiusSm,
+    overflow: "hidden",
     backgroundColor: theme.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
   },
-  rowThumbPlaceholder: {
+  rowImage: { width: "100%", height: "100%" },
+  rowImagePlaceholder: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
   },
   rowTitleBlock: { flex: 1, minWidth: 0 },
-  rowTitle: { fontSize: 18, fontWeight: "800", color: theme.text, letterSpacing: -0.2 },
+  rowTitle: { fontSize: 16, fontWeight: "800", color: theme.text, letterSpacing: -0.2 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
-  rowMeta: { marginTop: theme.spaceSm, color: theme.textSecondary, fontSize: 14, fontWeight: "500" },
+  rowMeta: { marginTop: 2, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
   muted: {
     color: theme.textMuted,
     textAlign: "center",
