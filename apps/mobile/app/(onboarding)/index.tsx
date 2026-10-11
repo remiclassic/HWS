@@ -40,7 +40,7 @@ const SLIDES: Slide[] = [
     tint: theme.trackOrange,
     kicker: "Your garage",
     title: "Own every pull",
-    body: "Log owned, want, and dupes in seconds. This profile starts on-device — add an email in Settings whenever you're ready and your garage rolls with you to the next phone.",
+    body: "Log owned, want, and dupes in seconds. Your garage is saved to your account, so it rolls with you to the next phone.",
   },
   {
     icon: "shield-check-outline",
@@ -54,7 +54,7 @@ const SLIDES: Slide[] = [
     tint: theme.trackYellow,
     kicker: "Green light",
     title: "Let's hit the pegs",
-    body: "You're set. Dig the catalog, stack your garage, and chase the next big score. See you out there.",
+    body: "One quick sign-in and you're set. Dig the catalog, stack your garage, and chase the next big score. See you out there.",
   },
 ];
 
