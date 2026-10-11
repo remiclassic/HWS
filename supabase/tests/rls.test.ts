@@ -125,4 +125,36 @@ describe("RLS isolation", () => {
     const { data } = await a.from("user_profiles").select("user_id").eq("user_id", userB);
     expect(data ?? []).toHaveLength(0);
   });
+
+  // The mobile leaderboard and collector screens embed across these two tables, which
+  // PostgREST only allows when a direct foreign key exists between them.
+  it("leaderboard embed lists opted-in users only", async () => {
+    await admin
+      .from("user_profiles")
+      .update({ leaderboard_opt_in: true, leaderboard_slug: `a${Date.now()}`.slice(0, 12) })
+      .eq("user_id", userA);
+    const b = await userClient(emailB, password);
+    const { data, error } = await b
+      .from("user_gamification")
+      .select("user_id, total_xp, user_profiles!inner(display_name, leaderboard_slug, leaderboard_opt_in)")
+      .eq("user_profiles.leaderboard_opt_in", true);
+    expect(error).toBeNull();
+    const ids = (data ?? []).map((r) => r.user_id);
+    expect(ids).toContain(userA);
+    // B can read their own gamification row, but has not opted in.
+    expect(ids).not.toContain(userB);
+  });
+
+  it("collector profile embed returns gamification as a single object", async () => {
+    const b = await userClient(emailB, password);
+    const { data, error } = await b
+      .from("user_profiles")
+      .select("user_id, user_gamification!inner(total_xp, current_streak)")
+      .eq("user_id", userA)
+      .eq("leaderboard_opt_in", true)
+      .single();
+    expect(error).toBeNull();
+    expect(Array.isArray(data?.user_gamification)).toBe(false);
+    expect(data?.user_gamification).toMatchObject({ total_xp: expect.any(Number) });
+  });
 });
