@@ -1,124 +1,142 @@
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-} from "react-native";
-import { Link, router } from "expo-router";
-import { Card } from "../components/ui/Card";
-import { authLogin } from "../lib/api";
-import { applyAuthToken } from "../lib/authSession";
-import { theme, themedScrollIndicatorProps } from "../lib/theme";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Link, router, useLocalSearchParams } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { AuthScaffold } from "../components/ui/AuthScaffold";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
+import { TextField } from "../components/ui/TextField";
+import { signInWithPassword, signInAnonymouslyDev } from "../lib/auth";
+import { isLocalEnv } from "../lib/supabase";
+import { theme } from "../lib/theme";
+import { useToast } from "../contexts/ToastContext";
+
+// Dev convenience: prefill with the seeded test user when running locally.
+// See supabase/seed.sql. Release builds never see these defaults.
+const DEV_EMAIL = "dev@hotwheels.local";
+const DEV_PASSWORD = "dev-password-AA1";
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const params = useLocalSearchParams<{ justSignedUp?: string; email?: string }>();
+  const justSignedUp = params.justSignedUp === "1";
+  const incomingEmail = typeof params.email === "string" ? params.email : "";
+  const [email, setEmail] = useState(incomingEmail || (isLocalEnv ? DEV_EMAIL : ""));
+  const [password, setPassword] = useState(incomingEmail ? "" : isLocalEnv ? DEV_PASSWORD : "");
   const [busy, setBusy] = useState(false);
+  const { showError } = useToast();
 
   const onSubmit = useCallback(async () => {
     if (!email.trim() || !password) {
-      Alert.alert("Sign in", "Enter email and password.");
+      showError("Enter your email and password.");
       return;
     }
     setBusy(true);
     try {
-      const { token } = await authLogin({
-        email: email.trim(),
-        password,
-      });
-      await applyAuthToken(token);
+      await signInWithPassword(email, password);
       router.replace("/(tabs)");
     } catch (e) {
-      Alert.alert("Sign in failed", String(e));
+      showError("Sign in failed", e);
     } finally {
       setBusy(false);
     }
-  }, [email, password]);
+  }, [email, password, showError]);
+
+  const onDevAnon = useCallback(async () => {
+    setBusy(true);
+    try {
+      await signInAnonymouslyDev();
+      router.replace("/(tabs)");
+    } catch (e) {
+      showError("Anonymous sign-in failed", e);
+    } finally {
+      setBusy(false);
+    }
+  }, [showError]);
 
   return (
-    <ScrollView
-      {...themedScrollIndicatorProps}
-      style={styles.root}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Card title="Sign in">
-        <Text style={styles.hint}>Use the email and password you registered with.</Text>
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          placeholder="you@example.com"
-          placeholderTextColor={theme.textMuted}
-          style={styles.input}
-          editable={!busy}
-        />
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholder="••••••••"
-          placeholderTextColor={theme.textMuted}
-          style={styles.input}
-          editable={!busy}
-        />
-        <Pressable
-          onPress={() => void onSubmit()}
-          disabled={busy}
-          style={({ pressed }) => [styles.primaryBtn, (busy || pressed) && styles.primaryBtnDim]}
-          accessibilityRole="button"
-          accessibilityLabel="Sign in"
-        >
-          {busy ? (
-            <ActivityIndicator color={theme.bg} />
-          ) : (
-            <Text style={styles.primaryBtnTxt}>Sign in</Text>
-          )}
-        </Pressable>
-        <Link href="/signup" asChild>
-          <Pressable style={styles.secondaryLink} accessibilityRole="button" accessibilityLabel="Create an account">
-            <Text style={styles.linkTxt}>Create an account</Text>
+    <AuthScaffold title="Sign in" subtitle="Welcome back. Your garage is waiting.">
+      {justSignedUp ? (
+        <View style={styles.banner} accessibilityRole="alert">
+          <MaterialCommunityIcons name="check-circle" size={22} color={theme.officialText} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bannerTitle}>Account created</Text>
+            <Text style={styles.bannerBody}>
+              {isLocalEnv
+                ? "Sign in now with the password you just set."
+                : "Check your inbox for a confirmation link, then sign in."}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      <TextField
+        label="Email"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="email"
+        textContentType="emailAddress"
+        keyboardType="email-address"
+        placeholder="you@example.com"
+        editable={!busy}
+      />
+      <TextField
+        label="Password"
+        password
+        value={password}
+        onChangeText={setPassword}
+        autoComplete="password"
+        textContentType="password"
+        placeholder="Your password"
+        editable={!busy}
+        onSubmitEditing={() => void onSubmit()}
+      />
+      <PrimaryButton label="Sign in" onPress={() => void onSubmit()} loading={busy} />
+      <View style={styles.links}>
+        <Link href="/forgot-password" asChild>
+          <Pressable style={styles.link} accessibilityRole="link" accessibilityLabel="Forgot password">
+            <Text style={styles.linkTxt}>Forgot password?</Text>
           </Pressable>
         </Link>
-      </Card>
-    </ScrollView>
+        <Link href="/signup" asChild>
+          <Pressable style={styles.link} accessibilityRole="link" accessibilityLabel="Create an account">
+            <Text style={[styles.linkTxt, styles.linkMuted]}>
+              New here? <Text style={styles.linkTxt}>Create an account</Text>
+            </Text>
+          </Pressable>
+        </Link>
+        {isLocalEnv ? (
+          <Pressable
+            onPress={() => void onDevAnon()}
+            disabled={busy}
+            style={styles.link}
+            accessibilityRole="button"
+            accessibilityLabel="Continue anonymously (dev only)"
+          >
+            <Text style={styles.devLinkTxt}>Continue anonymously (dev only)</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </AuthScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.bg },
-  content: { padding: theme.spaceLg, paddingBottom: theme.space3xl },
-  hint: { fontSize: 14, color: theme.textMuted, marginBottom: theme.spaceMd, fontWeight: "500", lineHeight: 20 },
-  label: { fontSize: 13, fontWeight: "800", color: theme.textMuted, marginBottom: 6 },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
+  links: { marginTop: theme.spaceXl, gap: theme.spaceLg, alignItems: "center" },
+  link: { minHeight: 28, justifyContent: "center" },
+  linkTxt: { fontSize: 15, fontWeight: "800", color: theme.accentSecondary },
+  linkMuted: { color: theme.textSecondary, fontWeight: "600" },
+  devLinkTxt: { fontSize: 13, fontWeight: "600", color: theme.textMuted, textDecorationLine: "underline" },
+  banner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: theme.spaceMd,
+    backgroundColor: theme.officialBg,
     borderRadius: theme.radiusMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontWeight: "600",
-    color: theme.text,
-    backgroundColor: theme.bgSubtle,
-    marginBottom: theme.spaceMd,
+    padding: theme.spaceMd,
+    marginBottom: theme.spaceLg,
+    borderWidth: 1,
+    borderColor: theme.officialText + "55",
   },
-  primaryBtn: {
-    marginTop: theme.spaceSm,
-    paddingVertical: 14,
-    borderRadius: theme.radiusMd,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-  },
-  primaryBtnDim: { opacity: 0.7 },
-  primaryBtnTxt: { fontSize: 16, fontWeight: "800", color: theme.bg },
-  secondaryLink: { marginTop: theme.spaceLg, alignItems: "center" },
-  linkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
+  bannerTitle: { fontSize: 15, fontWeight: "800", color: theme.text, marginBottom: 2 },
+  bannerBody: { fontSize: 14, fontWeight: "500", color: theme.textSecondary, lineHeight: 20 },
 });

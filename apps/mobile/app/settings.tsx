@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -13,8 +12,13 @@ import {
 } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Card } from "../components/ui/Card";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { ListGroup, ListRow } from "../components/ui/ListRow";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { useOnboarding } from "../contexts/OnboardingContext";
+import { useToast } from "../contexts/ToastContext";
+import { useResponsiveLayout } from "../hooks/useResponsiveLayout";
 import {
   deleteMeAccount,
   fetchGamification,
@@ -26,19 +30,27 @@ import {
   registerPushToken,
   unregisterPushTokens,
 } from "../lib/api";
-import { refreshAnonymousSession } from "../lib/authSession";
+import { signOut } from "../lib/auth";
 import { registerForExpoPushAsync } from "../lib/registerForPush";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
 export default function SettingsScreen() {
   const qc = useQueryClient();
   const { replayIntro } = useOnboarding();
+  const { show: showToast, showError } = useToast();
+  const { isWide, contentMaxWidth } = useResponsiveLayout();
+  const wideColumn = isWide
+    ? { maxWidth: contentMaxWidth, width: "100%" as const, alignSelf: "center" as const }
+    : undefined;
   const settingsQ = useQuery({ queryKey: ["me-settings"] as const, queryFn: fetchMeSettings });
   const gamificationQ = useQuery({ queryKey: ["gamification"] as const, queryFn: fetchGamification });
   const accountQ = useQuery({ queryKey: ["me-account"] as const, queryFn: fetchMeAccount });
   const [wantPush, setWantPush] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     if (settingsQ.data) setWantPush(settingsQ.data.notify_want_updates);
@@ -70,7 +82,7 @@ export default function SettingsScreen() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["me-settings"] });
     },
-    onError: (e) => Alert.alert("Could not update settings", String(e)),
+    onError: (e) => showError("Could not update settings", e),
   });
 
   const onToggleWant = useCallback(
@@ -86,9 +98,15 @@ export default function SettingsScreen() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["gamification"] });
       await qc.invalidateQueries({ queryKey: ["leaderboard"] });
+      showToast({ message: "Leaderboard settings saved" });
     },
-    onError: (e) => Alert.alert("Could not save leaderboard settings", String(e)),
+    onError: (e) => showError("Could not save leaderboard settings", e),
   });
+
+  const leaderboardDirty =
+    gamificationQ.data != null &&
+    (displayName.trim() !== (gamificationQ.data.display_name ?? "") ||
+      leaderboardOptIn !== gamificationQ.data.leaderboard_opt_in);
 
   const onSaveLeaderboard = useCallback(() => {
     saveLeaderboard.mutate({
@@ -101,263 +119,207 @@ export default function SettingsScreen() {
     try {
       const data = await fetchMeExport();
       const json = JSON.stringify(data, null, 2);
+      if (Platform.OS === "web") {
+        // react-native Share is a no-op on desktop browsers; write a real download.
+        const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `hotwheels-spotter-export-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        showToast({ message: "Export downloaded" });
+        return;
+      }
       await Share.share({ message: json, title: "Hot Wheels Spotter export" });
     } catch (e) {
-      Alert.alert("Export failed", String(e));
+      showError("Export failed", e);
     }
-  }, []);
+  }, [showToast, showError]);
 
   const deleteAccountMut = useMutation({
     mutationFn: deleteMeAccount,
     onSuccess: async () => {
-      await refreshAnonymousSession();
-      router.replace("/(tabs)");
-      Alert.alert("Account deleted", "A new profile was created on this device.");
+      await signOut();
+      router.replace("/login");
+      showToast({ message: "Account deleted. Your data has been removed." });
     },
-    onError: (e) => Alert.alert("Could not delete account", String(e)),
+    onError: (e) => showError("Could not delete account", e),
   });
 
-  const confirmDeleteAccount = useCallback(() => {
-    Alert.alert(
-      "Delete account?",
-      "This removes your profile, garage, and related data from the server. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => deleteAccountMut.mutate(),
-        },
-      ],
-    );
+  const confirmDeleteAccount = useCallback(() => setDeleteOpen(true), []);
+
+  const onConfirmDelete = useCallback(() => {
+    setDeleteOpen(false);
+    deleteAccountMut.mutate();
   }, [deleteAccountMut]);
 
-  const confirmSignOut = useCallback(() => {
-    Alert.alert(
-      "Sign out?",
-      "You will get a fresh anonymous profile on this device. Sign in again to restore an email-linked garage.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign out",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await refreshAnonymousSession();
-                await qc.invalidateQueries();
-              } catch (e) {
-                Alert.alert("Sign out failed", String(e));
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [qc]);
+  const confirmSignOut = useCallback(() => setSignOutOpen(true), []);
+
+  const onConfirmSignOut = useCallback(() => {
+    void (async () => {
+      setSigningOut(true);
+      try {
+        await signOut();
+        setSignOutOpen(false);
+        router.replace("/login");
+      } catch (e) {
+        showError("Sign out failed", e);
+      } finally {
+        setSigningOut(false);
+      }
+    })();
+  }, [showError]);
+
+  const lbBusy = saveLeaderboard.isPending || gamificationQ.isLoading;
+  const g = gamificationQ.data;
 
   return (
     <ScrollView
       {...themedScrollIndicatorProps}
       style={styles.root}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, wideColumn]}
+      keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.kicker}>Preferences</Text>
-      <Text style={styles.title}>Settings</Text>
-
       <Pressable
         onPress={() => router.push("/collector-progress")}
-        style={styles.progressLink}
+        style={({ pressed }) => [styles.profileCard, pressed && styles.profileCardPressed]}
         accessibilityRole="button"
         accessibilityLabel="Open collector progress"
       >
-        <Text style={styles.progressLinkTxt}>Collector progress & achievements</Text>
+        <View style={styles.levelBadge}>
+          <Text style={styles.levelBadgeTxt}>{g?.level ?? "–"}</Text>
+          <Text style={styles.levelBadgeLabel}>LVL</Text>
+        </View>
+        <View style={styles.profileText}>
+          <Text style={styles.profileName} numberOfLines={1}>
+            {g?.display_name || accountQ.data?.email || "Collector"}
+          </Text>
+          <Text style={styles.profileMeta} numberOfLines={1}>
+            {g ? `${g.total_xp} XP · ${g.achievements.length} achievements` : "Collector progress"}
+          </Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={22} color={theme.textMuted} />
       </Pressable>
 
-      <Card title="Account" style={styles.card}>
-        <Text style={styles.hint}>
-          {accountQ.data?.email
-            ? `Signed in as ${accountQ.data.email}.`
-            : "Anonymous profile on this device. Link an email to sign in on another device with the same garage."}
-        </Text>
-        {accountQ.data?.email ? (
-          <Pressable
-            onPress={confirmSignOut}
-            style={styles.stackLinkWrap}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-          >
-            <Text style={styles.stackLinkTxt}>Sign out</Text>
-          </Pressable>
-        ) : (
-          <>
-            <Pressable
-              onPress={() => router.push("/link-email")}
-              style={styles.stackLinkWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Link email"
-            >
-              <Text style={styles.stackLinkTxt}>Link email to this profile</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/login")}
-              style={styles.stackLinkWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in"
-            >
-              <Text style={styles.stackLinkTxt}>Sign in</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/signup")}
-              style={styles.stackLinkWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Create account"
-            >
-              <Text style={styles.stackLinkTxt}>Create new account</Text>
-            </Pressable>
-          </>
-        )}
-      </Card>
-
-      <Card title="Leaderboard & public profile" style={styles.card}>
-        <Text style={styles.hint}>
-          Opt in to appear on the public leaderboard. We show a display name, level, and XP — not your email
-          or device id. Turning this off removes you from the board and clears your shareable link.
-        </Text>
-        <Text style={styles.inputLabel}>Display name</Text>
-        <TextInput
-          value={displayName}
-          onChangeText={setDisplayName}
-          placeholder="e.g. Trackside Tom"
-          placeholderTextColor={theme.textMuted}
-          maxLength={32}
-          style={styles.textInput}
-          editable={!saveLeaderboard.isPending && !gamificationQ.isLoading}
+      <ListGroup title="Leaderboard & public profile">
+        <View style={styles.formBlock}>
+          <Text style={styles.inputLabel}>Display name</Text>
+          <TextInput
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="e.g. Trackside Tom"
+            placeholderTextColor={theme.inputPlaceholder}
+            maxLength={32}
+            style={styles.textInput}
+            editable={!lbBusy}
+            accessibilityLabel="Display name"
+          />
+        </View>
+        <ListRow
+          title="Show on leaderboard"
+          subtitle={
+            g?.leaderboard_slug
+              ? `Public link: ${g.leaderboard_slug}`
+              : "Shows your display name, level and XP — never your email."
+          }
+          right={
+            <Switch
+              value={leaderboardOptIn}
+              onValueChange={setLeaderboardOptIn}
+              disabled={lbBusy}
+              trackColor={{ false: theme.border, true: theme.accentMuted }}
+              thumbColor={leaderboardOptIn ? theme.accent : theme.bgSubtle}
+              accessibilityLabel="Show on leaderboard"
+            />
+          }
         />
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>Show on leaderboard</Text>
-            <Text style={styles.rowSub}>
-              {gamificationQ.data?.leaderboard_slug
-                ? `Slug: ${gamificationQ.data.leaderboard_slug}`
-                : "A random slug is created when you opt in."}
-            </Text>
+        {leaderboardDirty ? (
+          <View style={styles.formBlock}>
+            <PrimaryButton
+              label={saveLeaderboard.isPending ? "Saving…" : "Save changes"}
+              onPress={onSaveLeaderboard}
+              disabled={lbBusy}
+            />
           </View>
-          <Switch
-            value={leaderboardOptIn}
-            onValueChange={setLeaderboardOptIn}
-            disabled={saveLeaderboard.isPending || gamificationQ.isLoading}
-            trackColor={{ false: theme.border, true: theme.accentMuted }}
-            thumbColor={leaderboardOptIn ? theme.accent : theme.bgSubtle}
-          />
-        </View>
-        <Pressable
-          onPress={onSaveLeaderboard}
-          disabled={saveLeaderboard.isPending || gamificationQ.isLoading}
-          style={({ pressed }) => [
-            styles.saveLbBtn,
-            (saveLeaderboard.isPending || gamificationQ.isLoading) && styles.saveLbBtnDisabled,
-            pressed && !saveLeaderboard.isPending && styles.saveLbBtnPressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Save leaderboard settings"
-        >
-          <Text style={styles.saveLbBtnTxt}>
-            {saveLeaderboard.isPending ? "Saving…" : "Save leaderboard settings"}
-          </Text>
-        </Pressable>
-      </Card>
-
-      <Card title="Want list alerts" style={styles.card}>
-        <Text style={styles.hint}>
-          When catalog data is refreshed for a car on your Want list, we can send a push notification
-          (requires Expo push credentials on the server).
-        </Text>
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>Notify on catalog updates</Text>
-            <Text style={styles.rowSub}>Uses your Spotter account on this device.</Text>
-          </View>
-          <Switch
-            value={wantPush}
-            onValueChange={onToggleWant}
-            disabled={savePrefs.isPending || settingsQ.isLoading}
-            trackColor={{ false: theme.border, true: theme.accentMuted }}
-            thumbColor={wantPush ? theme.accent : theme.bgSubtle}
-          />
-        </View>
-        {Platform.OS === "web" ? (
-          <Text style={styles.webNote}>Push registration applies on iOS and Android builds only.</Text>
         ) : null}
-      </Card>
+      </ListGroup>
 
-      <Card title="Legal" style={styles.card}>
-        <Text style={styles.hint}>Review how we handle data before linking an email or enabling alerts.</Text>
-        <Pressable
-          onPress={() => router.push("/legal/privacy")}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Privacy"
-        >
-          <Text style={styles.stackLinkTxt}>Privacy</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/legal/terms")}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Terms"
-        >
-          <Text style={styles.stackLinkTxt}>Terms of service</Text>
-        </Pressable>
-      </Card>
+      <ListGroup title="Notifications">
+        <ListRow
+          icon="bell-outline"
+          title="Want list alerts"
+          subtitle={
+            Platform.OS === "web"
+              ? "Push notifications work in the iOS and Android apps."
+              : "Get a push when a car on your Want list is updated."
+          }
+          right={
+            <Switch
+              value={wantPush}
+              onValueChange={onToggleWant}
+              disabled={savePrefs.isPending || settingsQ.isLoading}
+              trackColor={{ false: theme.border, true: theme.accentMuted }}
+              thumbColor={wantPush ? theme.accent : theme.bgSubtle}
+              accessibilityLabel="Want list alerts"
+            />
+          }
+        />
+      </ListGroup>
 
-      <Card title="Your data" style={styles.card}>
-        <Text style={styles.hint}>
-          Export a JSON copy of your garage and preferences. Deleting your account removes server-side data for your
-          profile (see Privacy for details).
-        </Text>
-        <Pressable
+      <ListGroup title="Your data">
+        <ListRow
+          icon="download-outline"
+          title="Export my data"
+          subtitle="A JSON copy of your garage and preferences."
           onPress={() => void onExportData()}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Export my data"
-        >
-          <Text style={styles.stackLinkTxt}>Export my data</Text>
-        </Pressable>
-        <Pressable
-          onPress={confirmDeleteAccount}
+        />
+      </ListGroup>
+
+      <ListGroup title="About">
+        <ListRow icon="shield-lock-outline" title="Privacy" onPress={() => router.push("/legal/privacy")} />
+        <ListRow icon="file-document-outline" title="Terms of service" onPress={() => router.push("/legal/terms")} />
+        <ListRow icon="play-circle-outline" title="Replay intro" onPress={() => void replayIntro()} />
+      </ListGroup>
+
+      <ListGroup title="Account">
+        <ListRow
+          icon="account-circle-outline"
+          title={accountQ.data?.email ?? "Signed in"}
+          subtitle={accountQ.data?.email ? "Signed in" : undefined}
+        />
+        <ListRow icon="logout" title="Sign out" onPress={confirmSignOut} />
+        <ListRow
+          icon="trash-can-outline"
+          title={deleteAccountMut.isPending ? "Deleting…" : "Delete account"}
+          subtitle="Permanently removes your profile, garage and photos."
+          destructive
           disabled={deleteAccountMut.isPending}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Delete account"
-        >
-          <Text style={[styles.stackLinkTxt, styles.dangerLink]}>
-            {deleteAccountMut.isPending ? "Deleting…" : "Delete account"}
-          </Text>
-        </Pressable>
-      </Card>
+          onPress={confirmDeleteAccount}
+        />
+      </ListGroup>
 
-      <Card title="Intro" style={styles.card}>
-        <Text style={styles.hint}>See the welcome slides again.</Text>
-        <Pressable
-          onPress={() => void replayIntro()}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Replay intro"
-        >
-          <Text style={styles.stackLinkTxt}>Replay intro</Text>
-        </Pressable>
-      </Card>
-
-      <Card title="Tips" style={styles.card}>
-        <Text style={styles.hint}>
-          Set EXPO_ACCESS_TOKEN on the API host to enable outbound push. Pair the app with an EAS project
-          ID so this device can obtain an Expo push token.
-        </Text>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close settings">
-          <Text style={styles.link}>Close</Text>
-        </Pressable>
-      </Card>
+      <ConfirmDialog
+        visible={signOutOpen}
+        title="Sign out?"
+        message="You'll need to sign in again to access your garage."
+        confirmLabel="Sign out"
+        destructive
+        busy={signingOut}
+        onConfirm={onConfirmSignOut}
+        onCancel={() => setSignOutOpen(false)}
+      />
+      <ConfirmDialog
+        visible={deleteOpen}
+        title="Delete account?"
+        message="This removes your profile, garage, and related data from the server. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        busy={deleteAccountMut.isPending}
+        onConfirm={onConfirmDelete}
+        onCancel={() => setDeleteOpen(false)}
+      />
     </ScrollView>
   );
 }
@@ -365,14 +327,39 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   content: { padding: theme.spaceLg, paddingBottom: theme.space3xl },
-  kicker: { ...theme.typeKicker, color: theme.accent },
-  title: { ...theme.typeTitleLg, fontSize: 26, color: theme.text, marginTop: 4 },
-  progressLink: {
-    marginTop: theme.spaceMd,
-    paddingVertical: theme.spaceSm,
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spaceMd,
+    padding: theme.spaceLg,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    ...theme.shadow.card,
   },
-  progressLinkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
-  card: { marginTop: theme.spaceLg },
+  profileCardPressed: { backgroundColor: theme.bgRaised },
+  levelBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.accentYellowMuted,
+    borderWidth: 2,
+    borderColor: theme.trackYellow,
+  },
+  levelBadgeTxt: { fontSize: 20, fontWeight: "900", color: theme.trackYellow, lineHeight: 22 },
+  levelBadgeLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 1, color: theme.trackYellow },
+  profileText: { flex: 1, minWidth: 0 },
+  profileName: { fontSize: 18, fontWeight: "800", color: theme.text },
+  profileMeta: { marginTop: 2, fontSize: 14, fontWeight: "600", color: theme.textSecondary },
+  formBlock: {
+    paddingHorizontal: theme.spaceLg,
+    paddingVertical: theme.spaceMd,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+  },
   inputLabel: {
     fontSize: 13,
     fontWeight: "800",
@@ -380,8 +367,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   textInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
     borderRadius: theme.radiusMd,
     paddingHorizontal: theme.spaceMd,
     paddingVertical: 12,
@@ -389,36 +376,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: theme.text,
     backgroundColor: theme.bgSubtle,
-    marginBottom: theme.spaceMd,
   },
-  saveLbBtn: {
-    marginTop: theme.spaceMd,
-    paddingVertical: 14,
-    borderRadius: theme.radiusMd,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-  },
-  saveLbBtnPressed: { opacity: 0.92 },
-  saveLbBtnDisabled: { opacity: 0.55 },
-  saveLbBtnTxt: { fontSize: 16, fontWeight: "800", color: theme.bg },
-  hint: {
-    fontSize: 14,
-    color: theme.textMuted,
-    lineHeight: 20,
-    fontWeight: "500",
-    marginBottom: theme.spaceMd,
-  },
-  row: { flexDirection: "row", alignItems: "center", gap: theme.spaceMd },
-  rowTitle: { fontSize: 16, fontWeight: "800", color: theme.text },
-  rowSub: { fontSize: 13, color: theme.textMuted, marginTop: 4, fontWeight: "500" },
-  webNote: { marginTop: theme.spaceMd, fontSize: 13, color: theme.textSecondary, fontWeight: "600" },
-  link: {
-    marginTop: theme.spaceMd,
-    fontSize: 16,
-    fontWeight: "800",
-    color: theme.accent,
-  },
-  stackLinkWrap: { paddingVertical: theme.spaceSm },
-  stackLinkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
-  dangerLink: { color: theme.danger },
 });

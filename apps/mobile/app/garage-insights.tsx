@@ -1,19 +1,66 @@
 import { memo, useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import type { LineType, UserCarDto, UserCarStatus } from "@hotwheels/shared";
-import { Card } from "../components/ui/Card";
 import { HuntBadge } from "../components/ui/HuntBadge";
-import { LineChip } from "../components/ui/LineChip";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
+import { RemoteImage } from "../components/ui/RemoteImage";
 import { useResponsiveLayout } from "../hooks/useResponsiveLayout";
 import { fetchGarage } from "../lib/api";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
-const StatBlock = memo(function StatBlock({ label, value }: { label: string; value: string | number }) {
+const LINE_LABELS: Record<LineType, string> = {
+  Mainline: "Mainline",
+  Premium: "Premium",
+  RLC: "RLC",
+  TeamTransport: "Team Transport",
+  Entertainment: "Entertainment",
+  Other: "Other",
+};
+
+const StatTile = memo(function StatTile({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
   return (
-    <View style={styles.statBlock}>
-      <Text style={styles.statValue}>{value}</Text>
+    <View style={styles.statTile} accessibilityLabel={`${value} ${label}`}>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+});
+
+/** Horizontal bar scaled against the largest value in its group. */
+const BarRow = memo(function BarRow({
+  label,
+  count,
+  max,
+  color,
+}: {
+  label: string;
+  count: number;
+  max: number;
+  color: string;
+}) {
+  const pct = max > 0 ? Math.max(4, Math.round((count / max) * 100)) : 0;
+  return (
+    <View style={styles.barRow} accessibilityLabel={`${label}: ${count}`}>
+      <View style={styles.barHead}>
+        <Text style={styles.barLabel} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={styles.barCount}>{count}</Text>
+      </View>
+      <View style={styles.barTrack}>
+        <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: color }]} />
+      </View>
     </View>
   );
 });
@@ -22,14 +69,9 @@ export default function GarageInsightsScreen() {
   const { isWide, contentMaxWidth } = useResponsiveLayout();
   const q = useQuery({ queryKey: ["garage"] as const, queryFn: fetchGarage });
 
-  const items = q.data?.items ?? [];
-
-  const { byStatus, byLine, byYear, wantList } = useMemo(() => {
-    const statusCount: Record<UserCarStatus, number> = {
-      Owned: 0,
-      Want: 0,
-      Duplicate: 0,
-    };
+  const { total, byStatus, byLine, byYear, wantList } = useMemo(() => {
+    const items = q.data?.items ?? [];
+    const statusCount: Record<UserCarStatus, number> = { Owned: 0, Want: 0, Duplicate: 0 };
     const lineCount: Partial<Record<LineType, number>> = {};
     const yearCount: Record<number, number> = {};
     const wants: UserCarDto[] = [];
@@ -43,27 +85,21 @@ export default function GarageInsightsScreen() {
       if (it.status === "Want") wants.push(it);
     }
 
-    const topYears = Object.entries(yearCount)
-      .map(([y, c]) => ({ year: Number(y), count: c }))
-      .sort((a, b) => b.count - a.count || b.year - a.year)
-      .slice(0, 8);
-
-    const topLines = (Object.entries(lineCount) as [LineType, number][])
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-
     return {
+      total: items.length,
       byStatus: statusCount,
-      byLine: topLines,
-      byYear: topYears,
+      byLine: (Object.entries(lineCount) as [LineType, number][]).sort((a, b) => b[1] - a[1]).slice(0, 8),
+      byYear: Object.entries(yearCount)
+        .map(([y, c]) => ({ year: Number(y), count: c }))
+        .sort((a, b) => b.count - a.count || b.year - a.year)
+        .slice(0, 8),
       wantList: wants,
     };
-  }, [items]);
+  }, [q.data?.items]);
 
-  const wideColumn =
-    isWide && contentMaxWidth != null
-      ? { maxWidth: contentMaxWidth, width: "100%" as const, alignSelf: "center" as const }
-      : undefined;
+  const wideColumn = isWide
+    ? { maxWidth: contentMaxWidth, width: "100%" as const, alignSelf: "center" as const }
+    : undefined;
 
   if (q.isLoading) {
     return (
@@ -73,70 +109,81 @@ export default function GarageInsightsScreen() {
     );
   }
 
+  if (total === 0) {
+    return (
+      <View style={styles.center}>
+        <View style={styles.emptyArt}>
+          <MaterialCommunityIcons name="chart-box-outline" size={44} color={theme.accentSecondary} />
+        </View>
+        <Text style={styles.emptyTitle}>No insights yet</Text>
+        <Text style={styles.emptyBody}>Save a few cars to your garage and the breakdown appears here.</Text>
+        <View style={styles.centerAction}>
+          <PrimaryButton label="Browse catalog" onPress={() => router.push("/")} />
+        </View>
+      </View>
+    );
+  }
+
+  const lineMax = byLine[0]?.[1] ?? 0;
+  const yearMax = byYear[0]?.count ?? 0;
+
   return (
     <ScrollView
       {...themedScrollIndicatorProps}
       style={styles.root}
       contentContainerStyle={[styles.content, wideColumn]}
     >
-      <Text style={styles.kicker}>At a glance</Text>
-      <Text style={styles.title}>Garage insights</Text>
-      <Text style={styles.sub}>Derived from your saved items on this device.</Text>
-
       <View style={styles.statRow}>
-        <StatBlock label="Total" value={items.length} />
-        <StatBlock label="Owned" value={byStatus.Owned} />
-        <StatBlock label="Want" value={byStatus.Want} />
-        <StatBlock label="Dupes" value={byStatus.Duplicate} />
+        <StatTile label="Total" value={total} color={theme.text} />
+        <StatTile label="Owned" value={byStatus.Owned} color={theme.officialText} />
+        <StatTile label="Want" value={byStatus.Want} color={theme.rlcText} />
+        <StatTile label="Dupes" value={byStatus.Duplicate} color={theme.communityText} />
       </View>
 
-      <Card title="By line" style={styles.card}>
-        {byLine.length === 0 ? (
-          <Text style={styles.mutedSmall}>No line data yet.</Text>
-        ) : (
-          byLine.map(([line, count]) => (
-            <View key={line} style={styles.rowLine}>
-              <LineChip line={line} />
-              <Text style={styles.rowCount}>{count}</Text>
-            </View>
-          ))
-        )}
-      </Card>
+      <Text style={styles.sectionTitle}>By line</Text>
+      <View style={styles.group}>
+        {byLine.map(([line, count]) => (
+          <BarRow key={line} label={LINE_LABELS[line]} count={count} max={lineMax} color={theme.accentSecondary} />
+        ))}
+      </View>
 
-      <Card title="Top years" style={styles.card}>
-        {byYear.length === 0 ? (
-          <Text style={styles.mutedSmall}>No year data yet.</Text>
-        ) : (
-          byYear.map(({ year, count }) => (
-            <View key={year} style={styles.rowYear}>
-              <Text style={styles.yearTxt}>{year}</Text>
-              <Text style={styles.rowCount}>{count}</Text>
-            </View>
-          ))
-        )}
-      </Card>
+      <Text style={styles.sectionTitle}>Top years</Text>
+      <View style={styles.group}>
+        {byYear.map(({ year, count }) => (
+          <BarRow key={year} label={String(year)} count={count} max={yearMax} color={theme.trackOrange} />
+        ))}
+      </View>
 
-      <Card title="Want list" style={styles.card}>
-        {wantList.length === 0 ? (
-          <Text style={styles.mutedSmall}>Nothing on your want list.</Text>
-        ) : (
-          wantList.map((it) => (
-            <View key={it.id} style={styles.wantRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.wantTitle} numberOfLines={2}>
+      <Text style={styles.sectionTitle}>Want list</Text>
+      {wantList.length === 0 ? (
+        <Text style={styles.sectionHint}>Nothing on your want list. Mark a car as “Want” when you save it.</Text>
+      ) : (
+        <View style={styles.listGroup}>
+          {wantList.map((it) => (
+            <Pressable
+              key={it.id}
+              onPress={() => router.push(`/car/${it.car_id}`)}
+              style={({ pressed }) => [styles.wantRow, pressed && styles.wantRowPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Open reference: ${it.car?.casting_name ?? "Car"}`}
+            >
+              <RemoteImage uri={it.car?.primary_image_url} style={styles.wantThumb} />
+              <View style={styles.wantText}>
+                <Text style={styles.wantTitle} numberOfLines={1}>
                   {it.car?.casting_name ?? "Car"}
                 </Text>
                 {it.car ? (
-                  <View style={styles.wantChips}>
-                    <LineChip line={it.car.line_type} />
-                    <HuntBadge type={it.car.treasure_hunt_type} />
-                  </View>
+                  <Text style={styles.wantMeta} numberOfLines={1}>
+                    {it.car.year} · {LINE_LABELS[it.car.line_type]}
+                  </Text>
                 ) : null}
               </View>
-            </View>
-          ))
-        )}
-      </Card>
+              {it.car ? <HuntBadge type={it.car.treasure_hunt_type} /> : null}
+              <MaterialCommunityIcons name="chevron-right" size={22} color={theme.textMuted} />
+            </Pressable>
+          ))}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -144,47 +191,91 @@ export default function GarageInsightsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   content: { padding: theme.spaceLg, paddingBottom: theme.space3xl },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.bg },
-  kicker: { ...theme.typeKicker, color: theme.accent },
-  title: { ...theme.typeTitleLg, fontSize: 26, color: theme.text, marginTop: 4 },
-  sub: { marginTop: 8, color: theme.textSecondary, fontSize: 15, lineHeight: 22, fontWeight: "500" },
-  statRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: theme.bg,
+    padding: theme.spaceXl,
     gap: theme.spaceSm,
-    marginTop: theme.spaceLg,
   },
-  statBlock: {
-    flexGrow: 1,
-    minWidth: "22%",
-    padding: theme.spaceMd,
+  centerAction: { alignSelf: "stretch", maxWidth: 320, width: "100%", marginTop: theme.spaceMd },
+  emptyArt: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.accentSecondaryMuted,
+    marginBottom: theme.spaceSm,
+  },
+  emptyTitle: { fontSize: 20, fontWeight: "900", color: theme.text, textAlign: "center" },
+  emptyBody: {
+    color: theme.textSecondary,
+    textAlign: "center",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "500",
+    maxWidth: 340,
+  },
+  muted: { color: theme.textMuted, fontWeight: "600" },
+
+  statRow: { flexDirection: "row", gap: theme.spaceSm },
+  statTile: {
+    flex: 1,
+    paddingVertical: theme.spaceMd,
+    paddingHorizontal: theme.spaceSm,
     backgroundColor: theme.bgElevated,
     borderRadius: theme.radiusMd,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     alignItems: "center",
   },
-  statValue: { fontSize: 22, fontWeight: "900", color: theme.text },
-  statLabel: { marginTop: 4, fontSize: 12, fontWeight: "700", color: theme.textMuted },
-  card: { marginTop: theme.spaceLg },
-  rowLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  statValue: { fontSize: 24, fontWeight: "900", letterSpacing: -0.4 },
+  statLabel: { ...theme.typeKicker, fontSize: 10, color: theme.textSecondary, marginTop: 2 },
+
+  sectionTitle: {
+    ...theme.typeTitleMd,
+    fontSize: 20,
+    color: theme.text,
+    marginTop: theme.spaceXl,
     marginBottom: theme.spaceSm,
+  },
+  sectionHint: { fontSize: 15, lineHeight: 22, fontWeight: "500", color: theme.textMuted },
+  group: {
+    padding: theme.spaceLg,
     gap: theme.spaceMd,
+    backgroundColor: theme.bgElevated,
+    borderRadius: theme.radiusMd,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
   },
-  rowYear: {
+  barRow: { gap: 6 },
+  barHead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: theme.spaceMd },
+  barLabel: { flex: 1, fontSize: 15, fontWeight: "700", color: theme.text },
+  barCount: { fontSize: 15, fontWeight: "900", color: theme.text },
+  barTrack: { height: 8, borderRadius: 4, backgroundColor: theme.bgSubtle, overflow: "hidden" },
+  barFill: { height: "100%", borderRadius: 4 },
+
+  listGroup: {
+    backgroundColor: theme.bgElevated,
+    borderRadius: theme.radiusMd,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    overflow: "hidden",
+  },
+  wantRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spaceSm,
+    gap: theme.spaceMd,
+    padding: theme.spaceMd,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+    marginBottom: -StyleSheet.hairlineWidth,
   },
-  yearTxt: { fontSize: 16, fontWeight: "800", color: theme.text },
-  rowCount: { fontSize: 16, fontWeight: "800", color: theme.accent },
-  wantRow: { marginBottom: theme.spaceMd, paddingBottom: theme.spaceMd, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  wantRowPressed: { backgroundColor: theme.bgRaised },
+  wantThumb: { width: 64, height: 48, borderRadius: theme.radiusSm, backgroundColor: theme.bgSubtle },
+  wantText: { flex: 1, minWidth: 0 },
   wantTitle: { fontSize: 16, fontWeight: "800", color: theme.text },
-  wantChips: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
-  muted: { color: theme.textMuted, fontWeight: "600" },
-  mutedSmall: { color: theme.textMuted, fontSize: 14, fontWeight: "500" },
+  wantMeta: { marginTop: 2, fontSize: 13, fontWeight: "600", color: theme.textSecondary },
 });

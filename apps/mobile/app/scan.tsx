@@ -57,8 +57,8 @@ export default function ScanScreen() {
         <IconBarcodeScan color={theme.accentSecondary} size={56} />
         <Text style={styles.title}>Enter barcode or SKU</Text>
         <Text style={styles.sub}>
-          On web there’s no camera scanner. Type the code from the package, then we’ll jump back to Spotter
-          search with it filled in.
+          The camera scanner works in the iOS and Android apps. Here, type the code from the package and
+          we’ll search the catalog for it.
         </Text>
         <TextInput
           value={manualCode}
@@ -69,10 +69,13 @@ export default function ScanScreen() {
           autoCorrect={false}
           keyboardType="default"
           onSubmitEditing={applyManual}
+          autoFocus
+          returnKeyType="search"
+          accessibilityLabel="Barcode or SKU"
           style={styles.webInput}
         />
         <View style={styles.btnStack}>
-          <PrimaryButton label="Search with this code" onPress={applyManual} />
+          <PrimaryButton label="Search with this code" onPress={applyManual} disabled={!manualCode.trim()} />
           <PrimaryButton label="Go back" variant="ghost" onPress={() => router.back()} />
         </View>
       </View>

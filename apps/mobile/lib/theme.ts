@@ -15,7 +15,7 @@
  * Surface `#132A45`, Text `#F5F8FC` / `#A8BDD4`, Border `#2A4566`.
  * Errors: `danger` + `dangerSurface` / `dangerBorder`. Hero strip: `heroWashGradientColors`.
  */
-import type { TextStyle } from "react-native";
+import { Platform, type TextStyle } from "react-native";
 
 /** Flame / primary CTA — logo red */
 export const brand = {
@@ -226,13 +226,16 @@ export const theme = {
   },
 
   shadow: {
-    card: {
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.35,
-      shadowRadius: 16,
-      elevation: 4,
-    },
+    card: Platform.select({
+      web: { boxShadow: "0px 4px 16px rgba(0, 0, 0, 0.35)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 16,
+        elevation: 4,
+      },
+    }),
   },
 } as const;
 

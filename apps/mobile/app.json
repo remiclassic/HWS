@@ -17,7 +17,6 @@
           "recordAudioAndroid": false
         }
       ],
-      "@sentry/react-native",
       "expo-notifications"
     ],
     "splash": {
@@ -43,12 +42,25 @@
               "scheme": "hotwheels-spotter"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
-      ]
+      ],
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "package": "com.carvedstoneinteractive.hotwheelspotter"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e568dc86-ab92-4f09-a2c7-0b27d3801b02"
+      }
     }
   }
 }

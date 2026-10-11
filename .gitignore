@@ -5,9 +5,17 @@ dist
 *.log
 .env
 .env.local
+.env.production
+.env.staging
+.env.*.local
 .DS_Store
 coverage
 android
 ios
 *.tsbuildinfo
 .drizzle
+
+# Supabase
+supabase/.branches
+supabase/.temp
+supabase/functions/**/.env

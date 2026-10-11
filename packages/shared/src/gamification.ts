@@ -189,7 +189,7 @@ export const meGamificationAchievementSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
-  unlocked_at: z.string().datetime(),
+  unlocked_at: z.string().datetime({ offset: true }),
 });
 
 export const meGamificationResponseSchema = z.object({

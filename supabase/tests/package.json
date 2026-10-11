@@ -1,0 +1,14 @@
+{
+  "name": "@hotwheels/supabase-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.46.1",
+    "pg": "^8.13.1",
+    "vitest": "^3.0.5"
+  }
+}

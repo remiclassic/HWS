@@ -1,93 +1,691 @@
 # Hot Wheels Spotter
 
-Monorepo: **Expo (React Native) mobile app**, **Fastify API**, **Postgres + Drizzle**, shared **Zod** schemas.
+Mobile-first collector app. **Expo (React Native + expo-router)** on the front, **Supabase** (Auth + Postgres + Storage + Edge Functions) on the back. Shared **Zod** schemas and **Drizzle** ORM in between.
+
+- `apps/mobile/` — Expo app. Runs on web locally so you can develop without a phone.
+- `supabase/functions/` — Deno Edge Functions (see [its README](supabase/functions/README.md)); all server-side logic that needs service-role.
+- `packages/shared/` — Zod schemas + gamification rules used by both sides.
+- `db/` — Drizzle schema (source of truth for migrations).
+- `supabase/` — Supabase CLI config, generated migrations, seed data, RLS test suite.
+
+**Local == prod.** `supabase start` runs the full stack in Docker (Postgres, GoTrue, PostgREST, Storage with S3/MinIO API, Realtime, Edge, Inbucket email catcher). The same mobile client code talks to `http://localhost:54321` locally and your hosted Supabase in production.
 
 ## Prerequisites
 
 - Node 20+
-- Docker (optional, for local Postgres)
+- Docker (the Supabase CLI uses it to run the local stack)
 
-## Database
+Everything else is free and installed via `npm install`.
 
-Start Postgres:
-
-```bash
-npm run db:up
-```
-
-Default URL matches `apps/api/drizzle.config.ts`: `postgresql://spotter:spotter_dev@localhost:5433/hotwheels_spotter`.
-
-Apply migrations (from repo root):
+## Quick start
 
 ```bash
-cd apps/api
-npx drizzle-kit migrate
-```
-
-Seed demo catalog:
-
-```bash
-npx tsx src/scripts/seed.ts
-```
-
-If you already have duplicate `(user_id, car_id)` garage rows, migration `0001_user_car_unique` dedupes before adding the unique index.
-
-## API
-
-```bash
-cd apps/api
+git clone … && cd HWS
 npm install
-cp .env.example .env   # create if missing; set DATABASE_URL, JWT_SECRET optional
-npm run dev
+npm run db:start        # spins up the full Supabase stack locally (first run pulls images)
+npm run dev             # Expo web dev server → http://localhost:8081
 ```
 
-Default port: **3001**.
+You can also use the VS Code task **Run HWS Full Stack** in `/home/user/personal.code-workspace` — it launches Supabase, Edge Functions, and the web dev server in parallel.
 
-### Environment
+## Seeded users (local dev only)
 
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | Postgres connection string |
-| `PORT` | Listen port (default `3001`) |
-| `CORS_ORIGIN` | CORS origin (default `*`) |
-| `INTERNAL_IMPORT_KEY` | Required for ingestion routes |
+Loaded by `supabase/seed.sql` on every `npm run db:reset`. Never run in production.
 
-### Ingestion (catalog pipeline)
+| Role      | Email                      | Password              | Notes |
+|-----------|----------------------------|-----------------------|-------|
+| Collector | `dev@hotwheels.local`      | `dev-password-AA1`    | Demo garage + leaderboard opt-in. The login screen pre-fills these fields in local dev. |
+| Admin     | `admin@hotwheels.local`    | `admin-password-AA1`  | `is_admin = true`. Settings shows an "Admin dashboard" link. |
 
-- **Single car:** `POST /internal/import/manual-car` with header `x-internal-key: <INTERNAL_IMPORT_KEY>`. Body shape matches `parseManualCarPayload` in `apps/api/src/ingestion/manualImport.ts`.
-- **Bulk (up to 500):** `POST /internal/import/manual-cars-bulk` with `{ "cars": [ ... ], "stop_on_error": false }`. Same item shape as single import. Use for refresh jobs; idempotent upsert per casting name.
+**Email confirmations are disabled in local dev** (`supabase/config.toml` → `enable_confirmations = false`) so signup → sign-in works without clicking a link. **Re-enable confirmations in your hosted Supabase project** (Dashboard → Authentication → Providers → Email → Confirm email) before shipping.
 
-Anonymous auth: `POST /auth/anonymous` returns a JWT for `/me/garage` routes.
+If you want to exercise the full email flow locally, flip that config back on — all emails Supabase sends locally (signup confirmations, password resets, magic links) land in **Inbucket at <http://localhost:54324>**. Open that URL in your browser to read them; click the link just like a real user would.
 
-## Mobile
+Anonymous sign-in is also enabled in local dev. The login screen shows a "Continue anonymously (dev only)" button gated to `EXPO_PUBLIC_ENV=local`. Disable anonymous auth in the hosted Supabase Auth dashboard before shipping.
+
+## Admin web app (separate from mobile)
+
+The admin dashboard is a **standalone web app** at `apps/admin/` (Vite + React + TS). It is not part of the mobile bundle — admins shouldn't need a phone, and the mobile app shouldn't ship admin code.
 
 ```bash
-cd apps/mobile
-npm install
+npm run admin          # Vite dev server on http://localhost:5174
+# or VS Code task: "Run HWS Admin (Web)"
 ```
 
-Set API base URL for physical devices or non-default hosts:
+Sign in with `admin@hotwheels.local` / `admin-password-AA1` (prefilled in dev).
+
+You get:
+
+- **Overview tiles:** total users, new signups (24h / 7d), admins, garage rows, photos, open data reports.
+- **User list:** email, display name, creation date, last sign-in, garage + photo counts, ban state, admin flag.
+- **Per-user actions:** Ban (30 days), Unban, Delete (cascades profile/garage and purges the user's Storage folder). Admins cannot act on themselves or other admins.
+- **Photo moderation:** `admin-delete-photo` Edge Function is wired and callable from `src/lib/api.ts`; dedicated UI is a short follow-up.
+
+**Security model:**
+- Non-admin users who sign into the admin app see an "Admin only" screen.
+- Mutations run in Edge Functions guarded server-side by `requireAdminCtx` (checks `user_profiles.is_admin`). The client gate is cosmetic; the server is authoritative.
+- Service-role key never leaves the Edge Function — only the anon key ships to the browser.
+- `is_admin` cannot be self-promoted via RLS — only a service-role operation (like the seed or another admin-only future Edge Function) can set it.
+
+**Requires `supabase start` AND Edge Functions running.** Start both with `npm run db:start` + `npm run functions`, or run the "Run HWS Full Stack" workspace task.
+
+## Local services (from `supabase start`)
+
+| Service           | URL                                    |
+|-------------------|----------------------------------------|
+| API (PostgREST)   | <http://localhost:54321>               |
+| Studio            | <http://localhost:54323>                |
+| Inbucket (email)  | <http://localhost:54324>                |
+| Postgres          | `postgresql://postgres:postgres@localhost:54322/postgres` |
+| Storage S3 API    | <http://localhost:54321/storage/v1/s3>  |
+
+## Scripts
+
+Root (`package.json`):
 
 ```bash
-# .env or shell
-EXPO_PUBLIC_API_URL=http://192.168.x.x:3001
-```
-
-Android emulator uses `http://10.0.2.2:3001` by default when unset. iOS simulator uses `http://localhost:3001`.
-
-```bash
-npm run start
-```
-
-Barcode scanning uses **expo-camera** (device only; web shows a fallback). After `app.json` plugin changes, run a new dev client / prebuild if you use native builds.
-
-## Workspace scripts
-
-```bash
-npm run build    # shared + api
+npm run db:start       # supabase start
+npm run db:stop        # supabase stop
+npm run db:reset       # re-apply migrations + seed (recreates the dev user)
+npm run db:generate    # Drizzle → SQL migrations in supabase/migrations/
+npm run dev            # expo start (opens web by default)
+npm run test           # mobile vitest + RLS integration tests
+npm run test:mobile    # just the mobile tests
+npm run test:rls       # just the supabase RLS tests
 npm run lint
+npm run prebuild:android   # expo prebuild --platform android --clean
+npm run build:android      # prebuild + debug APK (no signing needed)
+npm run build:android:release  # prebuild + release APK (needs keystore)
 ```
 
-## Offline and backups
+Mobile (`apps/mobile/`):
 
-Garage data is cached with TanStack Query persistence after a successful fetch. Edits and new saves need the API unless you add a full offline queue. Use **My Garage → share (header)** to export a JSON backup for your own records or to move data manually between installs.
+```bash
+npm run start          # expo start (web/ios/android picker)
+npm run web            # expo start --web
+npm run android
+npm run ios
+npm run test
+npm run typecheck
+```
+
+## Auth
+
+- `@supabase/supabase-js` owns sessions. Storage adapter: `expo-secure-store` on native, `localStorage` on web (both set up in `apps/mobile/lib/supabase.ts`).
+- PKCE flow, auto-refresh, email confirmation required, secure password change required.
+- Password policy (enforced server-side in `supabase/config.toml`): ≥10 chars, at least one lowercase, one uppercase, one digit.
+- Screens: `login`, `signup`, `forgot-password`, settings-page sign-out. `link-email` is retired (use `supabase.auth.updateUser({ email })` if you ever need to change an address).
+- `lib/auth.ts` exposes `useSession`, `signInWithPassword`, `signUpWithPassword`, `sendPasswordReset`, `updatePassword`, `signOut`, `signInAnonymouslyDev`.
+
+## Database & ORM
+
+- Edit `db/schema.ts`, then `npm run db:generate` to emit SQL into `supabase/migrations/`.
+- Review the SQL, add RLS + policies for any new table before committing.
+- Apply locally with `npm run db:reset`.
+
+## Security (what's enforced, not aspirational)
+
+- **RLS on every public table, default deny.** Cross-user isolation verified by 7 integration tests in `supabase/tests/rls.test.ts` that run against the live local stack.
+- Mobile bundle never contains the service-role key. All service-role operations run in Edge Functions.
+- Tokens stored via `expo-secure-store` on native (keystore/keychain-backed).
+- Storage bucket `user-car-photos` is private with folder-name-as-userId RLS. Photos are uploaded via short-lived signed URLs.
+- Upload pipeline resizes to ≤1600px and re-encodes to strip EXIF/GPS (`apps/mobile/lib/photoPipeline.ts`).
+- Password/email rate limits configured in `supabase/config.toml`. JWT expiry 1h, refresh rotation enabled.
+
+## Uploads
+
+Mobile flow: `expo-image-picker` (library) or `expo-camera` (capture) → `expo-image-manipulator` (resize + strip EXIF) → `supabase.storage.from('user-car-photos').upload(<userId>/<photoId>.jpg, blob)` → insert into `user_car_photos`. Photos render via signed URLs returned from `fetchGarage`.
+
+On web, the Photo screen uses the library picker only (no live camera). On native, both are available.
+
+## Edge Functions
+
+Located under `supabase/functions/`:
+
+- `record-scan` — awards XP for barcode scans with streak logic (service-role required because users must not edit their own totals).
+- `delete-account` — deletes the caller's `auth.users` row (cascades to profile/garage) and purges their Storage bucket.
+
+Run locally with `npx supabase functions serve` (or the "Run HWS Edge Functions" VS Code task).
+
+## Tests
+
+- **Mobile** (`apps/mobile`) — Vitest + jsdom + `react-native-web` alias + Expo mocks. Run with `npm run test:mobile`.
+- **RLS / backend security** (`supabase/tests`) — Vitest hitting the local Supabase stack as two fresh users, asserting cross-user isolation and catalog write denial. Run with `npm run test:rls`.
+
+RLS tests require `npm run db:start` to be running.
+
+## Environment variables
+
+`apps/mobile/.env.local` (git-ignored — copy from `.env.local.example`):
+
+```bash
+EXPO_PUBLIC_ENV=local
+# Leave blank to auto-detect the `supabase start` instance.
+# For release builds, set these to your hosted Supabase project:
+# EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+# EXPO_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
+```
+
+Anything `EXPO_PUBLIC_*` is bundled into the app — never put secrets here.
+
+Service-role key: only needed inside Edge Functions, injected by Supabase at runtime.
+
+## Deploying
+
+### Prod env files
+
+Both apps read `VITE_*` / `EXPO_PUBLIC_*` vars at build time. Templates are checked in; the real files are `.gitignore`d.
+
+```bash
+cp apps/mobile/.env.production.example apps/mobile/.env.production
+cp apps/admin/.env.production.example  apps/admin/.env.production
+# edit both — replace the example URL/anon key with your hosted project's values
+```
+
+**Only ever put the `anon` / `publishable` key in these files.** Anon keys are designed to ship to the client — access control is enforced by RLS, not by key secrecy. The **service-role key** and the **database password** are real secrets and belong only in the Supabase dashboard / Edge Function runtime.
+
+### Database (first deploy)
+
+The hosted Supabase project starts empty — you must push the schema before the app works. Your project ref is the subdomain of your Supabase URL (e.g. `https://abcdefgh.supabase.co` → ref is `abcdefgh`).
+
+```bash
+npx supabase login                                  # opens browser to authenticate
+npx supabase link --project-ref <your-project-ref>  # links this repo to the hosted project
+npx supabase db push                                # applies all migrations (schema + RLS + triggers)
+```
+
+After this the tables exist but there is no seed data — the local seed (`supabase/seed.sql`) is for dev only. Add cars via the admin web app and create real users through normal signup.
+
+> **If you see "could not find table public.X in the schema cache"** in the app, the migrations haven't been pushed yet. Run `npx supabase db push` again.
+
+> **Supabase free tier pauses projects** after ~1 week of inactivity. If the app returns network errors, open the Supabase dashboard and click "Restore project" — it takes about 2 minutes to wake up.
+
+### Email confirmation redirect
+
+After signup Supabase sends a confirmation email. For the link to deep-link back into the mobile app instead of `localhost:3000`, configure the Supabase dashboard:
+
+**Authentication → URL Configuration:**
+- **Site URL:** `hotwheels-spotter://`
+- **Redirect URLs:** add `hotwheels-spotter://**`
+
+### Build & deploy
+
+- **Mobile app:** see [Android builds](#android-builds) below. For web-only testing: `npx expo export --platform web` produces a static bundle.
+- **Admin web app:** `npm run build -w @hotwheels/admin` emits `apps/admin/dist/` — host on Vercel, Netlify, Cloudflare Pages, or behind a reverse proxy. It's a static SPA; add a rewrite rule so every path serves `index.html`.
+- **Edge Functions:** `npx supabase functions deploy <name> --project-ref <ref>`. Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) are injected automatically by the runtime — don't set them manually.
+
+## Android builds
+
+No EAS. Builds run with `expo prebuild` (generates the `android/` native project) + Gradle. GitHub's `ubuntu-latest` runner has the Android SDK pre-installed, so CI needs no extra setup.
+
+### Local build
+
+#### One-time setup — Windows (native, no WSL)
+
+**1. Install prerequisites** — open PowerShell as Administrator:
+
+```powershell
+# Node 20
+winget install OpenJS.NodeJS.LTS
+
+# JDK 17
+winget install EclipseAdoptium.Temurin.17.JDK
+
+# Git (if not already installed)
+winget install Git.Git
+```
+
+**2. Install Android Studio** — download from [developer.android.com/studio](https://developer.android.com/studio) and run the installer. During setup let it install the Android SDK (default location: `C:\Users\<you>\AppData\Local\Android\Sdk`).
+
+**3. Set environment variables** — open *System Properties → Environment Variables*:
+
+| Variable | Value |
+|----------|-------|
+| `ANDROID_HOME` | `C:\Users\<you>\AppData\Local\Android\Sdk` |
+| Add to `Path` | `%ANDROID_HOME%\platform-tools` |
+| Add to `Path` | `%ANDROID_HOME%\cmdline-tools\latest\bin` |
+
+Restart your terminal after setting these.
+
+**4. Install the required SDK components** — open Android Studio → *SDK Manager* → *SDK Platforms*: install **Android 14 (API 36)**. Under *SDK Tools*: install **Android SDK Build-Tools 36**, **NDK (Side by side) 27.1**, **CMake**.
+
+**5. Clone the repo to a Windows path** (avoid WSL paths — Gradle on Windows doesn't handle `\\wsl$\...` reliably):
+
+```powershell
+git clone https://github.com/remiclassic/HWS.git C:\Dev\HWS
+cd C:\Dev\HWS
+npm install
+```
+
+**6. Create the prod env file** — in PowerShell:
+
+```powershell
+@"
+EXPO_PUBLIC_ENV=production
+EXPO_PUBLIC_SUPABASE_URL=https://gvlnnjcdqpxqyouwypyq.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_IDL4VIURGr0sOZwpHXVZJw_WeI6xm0N
+"@ | Out-File -Encoding utf8 apps\mobile\.env.production
+```
+
+**7. Generate the native project and build:**
+
+```powershell
+# Generate android/ folder
+cd apps\mobile
+npx expo prebuild --platform android --clean
+
+# Build debug APK (no signing needed)
+cd android
+.\gradlew.bat assembleDebug --no-daemon
+```
+
+APK lands at `apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk`.
+
+**Install on a connected phone** (USB debugging on, USB mode set to File Transfer):
+
+```powershell
+adb install apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+> **Note:** `npm run build:android` uses a Unix path (`./gradlew`) so it won't work in PowerShell directly. Run `npx expo prebuild --platform android --clean` then `.\gradlew.bat assembleDebug` from the `android\` folder instead — or use Git Bash where `./gradlew` works normally.
+
+> **Re-run prebuild when:** you change `app.json`, add/remove a native package, or upgrade Expo. Pure JS changes don't need it.
+
+> **If prebuild seems to delete your source files:** run `git restore apps/mobile/` — everything is in git.
+
+---
+
+#### One-time setup (WSL / Ubuntu)
+
+```bash
+# JDK 17
+sudo apt update && sudo apt install -y openjdk-17-jdk
+
+# Android command-line tools
+mkdir -p ~/android-sdk/cmdline-tools && cd ~/android-sdk/cmdline-tools
+wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+unzip commandlinetools-linux-11076708_latest.zip
+mv cmdline-tools latest
+cd ~
+
+# Add to ~/.bashrc (run once — opens a new terminal to take effect)
+echo 'export ANDROID_HOME=$HOME/android-sdk' >> ~/.bashrc
+echo 'export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/36.0.0' >> ~/.bashrc
+source ~/.bashrc
+
+# Accept licenses and install SDK components (~500 MB, takes a few minutes)
+yes | sdkmanager --licenses
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+```
+
+> **Note:** if `echo >> ~/.bashrc` gives `Permission denied`, run `chmod 644 ~/.bashrc` first.
+
+#### Building
+
+```bash
+# First time only: create the prod env file
+cat > apps/mobile/.env.production << 'EOF'
+EXPO_PUBLIC_ENV=production
+EXPO_PUBLIC_SUPABASE_URL=https://gvlnnjcdqpxqyouwypyq.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_IDL4VIURGr0sOZwpHXVZJw_WeI6xm0N
+EOF
+
+npm run build:android          # debug APK — no signing, install directly on device
+npm run build:android:release  # release APK — needs a keystore (see below)
+```
+
+Debug APK: `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
+Release APK: `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`
+
+Install on a connected phone:
+```bash
+adb install apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+> **Re-run prebuild when:** you change `app.json`, add/remove a native package, or upgrade Expo. Pure JS changes don't need it — just rebuild with Gradle.
+
+> **`expo prebuild --clean` wipes the source files if something goes wrong.** The files are tracked in git — run `git restore apps/mobile/` to get them back instantly.
+
+### CI/CD (GitHub Actions, free)
+
+`.github/workflows/cd.yml` runs on every push to `main` and on `v*` tags:
+
+| Trigger | Output | Signing |
+|---------|--------|---------|
+| Push to `main` | Debug APK, uploaded as Actions artifact (30-day retention) | None needed |
+| Tag `v1.0.0` | Release AAB, uploaded as Actions artifact (90-day retention) | Keystore secrets required |
+
+Download the APK from the **Actions** tab → select the run → **Artifacts**.
+
+### Release signing (Play Store / `v*` tags)
+
+Generate a keystore once and store it as GitHub secrets:
+
+```bash
+# 1. Generate keystore
+keytool -genkey -v -keystore release.keystore -alias release \
+        -keyalg RSA -keysize 2048 -validity 10000
+
+# 2. Base64-encode it
+base64 release.keystore   # copy the output
+
+# 3. Add 4 secrets in GitHub → Settings → Secrets → Actions:
+#    ANDROID_KEYSTORE_BASE64   ← base64 output from step 2
+#    ANDROID_KEY_ALIAS         ← release
+#    ANDROID_KEY_PASSWORD      ← key password you chose
+#    ANDROID_STORE_PASSWORD    ← store password you chose
+```
+
+Keep `release.keystore` backed up somewhere safe — you need the same key to push updates to the Play Store.
+
+### Troubleshooting Android builds
+
+#### `TypeError: Cannot read property 'useMemo' of null` (app crashes immediately)
+
+Two React instances are being bundled — `react-native`'s internal renderer expects one exact version and crashes when it finds another.
+
+**Root cause:** `expo-router@6` declares `peer react: "*"`, which causes npm to nest `react@19.2.5` inside `apps/mobile/node_modules/`. Metro's normal resolver finds that copy before the pinned root copy.
+
+**Fix already applied:** `apps/mobile/metro.config.js` uses `resolver.resolveRequest` to intercept all `react` / `react-dom` / `react-native` imports and redirect them to the single root `node_modules` copy. If you see this error again after upgrading packages, clear Metro's cache:
+
+```bash
+cd apps/mobile && npx expo start --clear
+```
+
+Also make sure `react` and `react-dom` are pinned to an exact version (no `^`) in `apps/mobile/package.json` matching the version react-native ships with.
+
+---
+
+#### `Error: EXPO_PUBLIC_SUPABASE_URL must be set for release builds`
+
+The production env file is missing — it's git-ignored and must be created locally before building.
+
+```bash
+cp apps/mobile/.env.production.example apps/mobile/.env.production
+```
+
+The example file already contains the correct hosted Supabase URL and anon key. Release builds (`npm run build:android:release`) set `NODE_ENV=production` so Metro loads `.env.production` automatically.
+
+---
+
+### Sentry source maps (optional)
+
+The `@sentry/react-native` Expo plugin is intentionally removed from `app.json` because the v7.2 plugin always injects a Gradle hook that fails without credentials. To re-enable source map uploads when you have a Sentry project:
+
+1. Add to `app.json` plugins: `["@sentry/react-native", { "organization": "your-org", "project": "your-project" }]`
+2. Add `SENTRY_AUTH_TOKEN` as a GitHub secret
+3. Add `EXPO_PUBLIC_SENTRY_DSN` to `apps/mobile/.env.production`
+
+## Security & production hardening
+
+Before flipping your hosted Supabase project live, work through this list. None of these are optional.
+
+### Supabase project settings
+
+- [ ] **Database → Reset database password.** Use a password manager. Don't reuse the local default.
+- [ ] **API → service_role key → Rotate** if it has ever been exposed. This key bypasses RLS and can do anything.
+- [ ] **Authentication → Providers → Email → Confirm email: ON.** Local dev has this off (`supabase/config.toml → enable_confirmations = false`); production must confirm.
+- [ ] **Authentication → Providers → Anonymous sign-ins: OFF.** The mobile app's "Continue anonymously (dev only)" button is already gated to `EXPO_PUBLIC_ENV=local`, but disabling at the server level is defense in depth.
+- [ ] **Authentication → Password policy:** minimum 10 characters, require upper + lower + digit (mirrors `config.toml`).
+- [ ] **Authentication → Rate limits:** keep the defaults or tighten. Email sends, OTP verifications, and sign-ups should have per-IP caps.
+- [ ] **Database → Network Restrictions:** allowlist only IPs that need direct DB access — typically none, since everything goes through PostgREST/Edge with RLS.
+- [ ] **Database → Extensions:** disable anything you don't use (reduces attack surface).
+
+### RLS & schema
+
+- [ ] Confirm every table in `public` has `relrowsecurity = t`:
+  ```sql
+  select relname, relrowsecurity from pg_class
+  where relnamespace = 'public'::regnamespace and relkind = 'r';
+  ```
+- [ ] Run the integration suite against a staging project (clone of prod) before releases: `DATABASE_URL=… npm run test:rls`.
+- [ ] Don't grant the `anon` role anything beyond what RLS allows. `authenticated` gets RLS-gated selects + owner-scoped writes.
+
+### Storage
+
+- [ ] Bucket `user-car-photos` is **private** (not public) — confirmed in `config.toml`.
+- [ ] Object path convention `<userId>/<photoId>.<ext>` is enforced by RLS on `storage.objects`.
+- [ ] MIME allowlist (`image/png`, `image/jpeg`, `image/webp`) and 8 MiB size limit set in `config.toml` — verify they mirror in the hosted project's Storage settings.
+- [ ] Consider adding a virus/image-hash scan Edge Function on upload if you expect untrusted content.
+
+### Client apps
+
+- [ ] Neither app bundles the service-role key. Grep your build output to confirm (`rg "service_role" apps/*/dist`).
+- [ ] Tokens stored via `expo-secure-store` on native; `localStorage` on web. The mobile `lib/supabase.ts` adapter is already platform-split.
+- [ ] `EXPO_PUBLIC_ENV=production` disables dev-only UI like anonymous sign-in and the login prefill.
+- [ ] Release builds point at your Supabase URL, not `localhost`.
+
+### Edge Functions
+
+- [ ] Every `admin-*` function starts with `requireAdminCtx(req)` — server-side role check. Do not trust the client.
+- [ ] Mutating functions reject non-POST. Listing functions reject non-GET. (See existing code for the pattern.)
+- [ ] `_shared/auth.ts` verifies the Supabase JWT via the anon-scoped client before escalating to service role.
+
+### Monitoring & ops
+
+- [ ] Enable Supabase log drains or connect Logtail/Datadog to `functions` and `postgres` logs.
+- [ ] Wire Sentry in both apps (mobile's `lib/sentry.{native,web}.ts` are scaffolded; set `EXPO_PUBLIC_SENTRY_DSN`).
+- [ ] Set up Supabase's database connection pooling (PgBouncer / Supavisor) URL and use it for server-to-DB traffic; keep the direct connection for migrations only.
+- [ ] Back up regularly. Supabase Pro has daily PITR; the free tier only keeps the last 7-day daily dump.
+
+### Watching for unexpected connections
+
+The Supabase dashboard (Database → Reports → Connections) and this query show every live connection:
+
+```sql
+select pid, usename, application_name, client_addr, state, query_start
+from pg_stat_activity
+where datname = 'postgres'
+order by query_start desc;
+```
+
+Internal: `supabase_admin`, `authenticator`, `pgbouncer`, `postgrest`, `supabase_realtime_admin`. Anything else should be yours (Studio / `psql` / a migration job). If you see client IPs you don't recognize, **rotate the DB password and service-role key immediately**, then drop the sessions:
+
+```sql
+select pg_terminate_backend(pid)
+from pg_stat_activity
+where usename = 'postgres' and pid <> pg_backend_pid();
+```
+
+### Local stack exposure
+
+`supabase start` binds every port to `0.0.0.0` by design — anyone on your LAN can reach your dev Postgres on `:54322`. That's fine on a laptop behind a home router, not fine on a café Wi-Fi. Block with the host firewall:
+
+```bash
+sudo ufw deny  proto tcp from any to any port 54321:54327
+sudo ufw allow proto tcp from 127.0.0.1 to any port 54321:54327
+```
+
+The local DB user/password (`postgres` / `postgres`) is a published Supabase-CLI default and cannot be changed without patching the CLI; use firewall isolation instead.
+
+## Project conventions
+
+- ESM everywhere. Zod schemas in `packages/shared` are the source of truth for request/response shapes.
+- Lint runs with `--max-warnings 0`.
+- Drizzle is the only migration authoring tool. Don't hand-edit `supabase/migrations/*.sql` after generation unless adding RLS policies or data migrations — keep the diff reviewable.
+- Keep `packages/shared/src/gamification.ts` in sync if you change XP/achievement rules — it's shared with the Edge Functions.
+
+## Android framework alternatives
+
+The current stack is Expo (React Native + expo-router). These are the viable paths if you ever need to move to a different Android framework, along with how the existing design system maps across.
+
+**Design system tokens** (`apps/mobile/lib/theme.ts`) that carry forward to any target:
+
+| Token | Hex |
+|---|---|
+| Background | `#071422` |
+| Surface / card | `#132A45` |
+| Primary red | `#D81E2A` |
+| Sky blue accent | `#1FA6F0` |
+| Track orange | `#FF7A1A` |
+| Racing yellow | `#FFD400` |
+| Text primary | `#F5F8FC` |
+| Text secondary | `#A8BDD4` |
+| Border default | `#2A4566` |
+
+---
+
+### TypeScript paths
+
+#### Bare React Native (lowest friction)
+
+Strip Expo managed workflow, keep all TS/RN code. Your entire component library, `theme.ts`, and `lib/api.ts` carry over unchanged. Replace Expo-specific packages with community equivalents:
+
+| Expo package | Bare RN replacement |
+|---|---|
+| `expo-router` | `@react-navigation/native` + `@react-navigation/bottom-tabs` |
+| `expo-haptics` | `react-native-haptic-feedback` |
+| `expo-image-picker` | `react-native-image-picker` |
+| `expo-image-manipulator` | `react-native-image-resizer` |
+| `expo-camera` / barcode | `react-native-vision-camera` + `vision-camera-code-scanner` |
+
+Run `npx expo prebuild --platform android --clean` to generate the native project, then eject by removing managed config from `app.json`. Everything in `apps/mobile/app/`, `components/`, and `lib/` stays as-is.
+
+**Effort:** Low. **Code reuse:** ~95%.
+
+---
+
+#### NativeScript + TypeScript
+
+TypeScript compiled to real native Android Views (no WebView, no JS bridge for UI). Supports Angular, Vue, React, or plain TS templates.
+
+Design tokens from `theme.ts` carry over as constants. Every component needs a full rewrite in NativeScript's layout system:
+
+| Current (React Native) | NativeScript equivalent |
+|---|---|
+| `View` / `StyleSheet` | `StackLayout`, `GridLayout` + CSS |
+| `Text` | `Label` |
+| `FlatList` | `ListView` / `CollectionView` |
+| `Pressable` + scale animation | `Button` / tap gesture + `Animation` API |
+| `expo-router` bottom tabs | `TabView` |
+| `expo-haptics` | `@nativescript/haptics` |
+| `react-native-reanimated` | `Animation` class / `@nativescript/animated-circle` |
+
+**Effort:** High — full component rewrite. **Code reuse:** tokens only.
+
+---
+
+#### Capacitor + Ionic (WebView-based)
+
+Your React/TS code runs in a full-screen WebView wrapped as an APK. Not truly native UI — not viable for animation-heavy screens (the scan screen, garage FlatList with `FadeInDown` entering animations, etc.).
+
+Only consider this if the goal is a quick web-to-Android wrap of `apps/admin/` or a stripped-down informational view.
+
+**Effort:** Medium. **Code reuse:** high for web-targeted code only.
+
+---
+
+### Kotlin path — Jetpack Compose
+
+Google's modern declarative UI toolkit for Android. Closest mental model to React: composable functions, state-driven re-renders, `remember {}` ≈ `useState`. Best-in-class native Android performance; camera/barcode via CameraX + ML Kit is first-class.
+
+**Design system in Compose:**
+
+```kotlin
+object HWSColors {
+    val bg            = Color(0xFF071422)
+    val bgElevated    = Color(0xFF132A45)
+    val accent        = Color(0xFFD81E2A)
+    val accentPressed = Color(0xFFB81522)
+    val field         = Color(0xFF1FA6F0)
+    val trackOrange   = Color(0xFFFF7A1A)
+    val accentYellow  = Color(0xFFFFD400)
+    val text          = Color(0xFFF5F8FC)
+    val textSecondary = Color(0xFFA8BDD4)
+    val border        = Color(0xFF2A4566)
+}
+
+object HWSShape {
+    val radiusMd = 14.dp
+    val radiusLg = 20.dp
+}
+```
+
+**Component translations:**
+
+```kotlin
+// PrimaryButton.tsx → @Composable
+@Composable
+fun PrimaryButton(label: String, onClick: () -> Unit, enabled: Boolean = true) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.95f else 1f, label = "scale")
+    val haptic = LocalHapticFeedback.current
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(HWSShape.radiusMd))
+            .background(if (enabled) HWSColors.accent else HWSColors.accent.copy(alpha = 0.38f))
+            .clickable(interactionSource, indication = null, enabled = enabled) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .fillMaxWidth()
+    ) {
+        Text(label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+// Card.tsx → @Composable
+@Composable
+fun HWSCard(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        shape = RoundedCornerShape(HWSShape.radiusMd),
+        colors = CardDefaults.cardColors(containerColor = HWSColors.bgElevated),
+        border = BorderStroke(0.5.dp, HWSColors.border),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            if (title != null) {
+                Text(
+                    title.uppercase(),
+                    color = HWSColors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.1.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+            content()
+        }
+    }
+}
+```
+
+**Animation mapping:**
+
+| react-native-reanimated | Compose equivalent |
+|---|---|
+| `FadeInDown` entering | `AnimatedVisibility(enter = fadeIn() + slideInVertically())` |
+| `withSpring` | `spring()` in `animateFloatAsState` |
+| `LinearTransition` | `animateItemPlacement()` on `LazyColumn` items |
+| `useSharedValue` + `withTiming` | `Animatable` / `animateFloatAsState` |
+
+**Navigation (replaces expo-router):**
+
+```kotlin
+// Bottom tab equivalent of apps/mobile/app/(tabs)/_layout.tsx
+NavHost(navController, startDestination = "catalog") {
+    composable("catalog") { CatalogScreen() }
+    composable("garage")  { GarageScreen() }
+    composable("scan")    { ScanScreen() }
+}
+```
+
+**Backend:** use `supabase-kt` (official Kotlin client — `io.github.jan-tennert.supabase`). Auth, Postgres, Storage, and Realtime modules all available. Same Supabase project, same RLS, same Edge Functions.
+
+**Effort:** High (full rewrite in Kotlin). **Code reuse:** design tokens + Supabase schema + Edge Functions. **Result:** best possible native Android experience.
+
+---
+
+### Summary
+
+| Goal | Best pick |
+|---|---|
+| Stay in TypeScript, minimal change | Bare React Native (eject from Expo) |
+| TypeScript with full native UI control | NativeScript |
+| Best native Android UX | Jetpack Compose (Kotlin) |
+| Web-first, Android as wrapper | Capacitor + Ionic |
