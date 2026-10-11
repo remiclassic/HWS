@@ -11,11 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // Keys are read from the environment so this file never contains credential-shaped
 // literals (GitHub push protection rejects the CLI's published default key by pattern).
-// Populate from `supabase status`:
-//   export SUPABASE_URL="$(npx supabase status --output json | jq -r .API_URL)"
-//   export SUPABASE_SERVICE_ROLE_KEY="$(npx supabase status --output json | jq -r .SERVICE_ROLE_KEY)"
-//   export SUPABASE_ANON_KEY="$(npx supabase status --output json | jq -r .ANON_KEY)"
-// Or source `supabase/tests/.env.local` (git-ignored) before running vitest.
+// vitest.config.ts fills them in from `supabase status` when they are not already exported.
 const API_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -23,7 +19,7 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 if (!API_URL || !SERVICE_ROLE || !ANON_KEY) {
   throw new Error(
     "RLS tests require SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_ANON_KEY. " +
-      "Run `npx supabase status` and export the values before `npm run test:rls`.",
+      "Start the local stack with `npm run db:start`, or export the values.",
   );
 }
 
@@ -124,5 +120,37 @@ describe("RLS isolation", () => {
     const a = await userClient(emailA, password);
     const { data } = await a.from("user_profiles").select("user_id").eq("user_id", userB);
     expect(data ?? []).toHaveLength(0);
+  });
+
+  // The mobile leaderboard and collector screens embed across these two tables, which
+  // PostgREST only allows when a direct foreign key exists between them.
+  it("leaderboard embed lists opted-in users only", async () => {
+    await admin
+      .from("user_profiles")
+      .update({ leaderboard_opt_in: true, leaderboard_slug: `a${Date.now()}`.slice(0, 12) })
+      .eq("user_id", userA);
+    const b = await userClient(emailB, password);
+    const { data, error } = await b
+      .from("user_gamification")
+      .select("user_id, total_xp, user_profiles!inner(display_name, leaderboard_slug, leaderboard_opt_in)")
+      .eq("user_profiles.leaderboard_opt_in", true);
+    expect(error).toBeNull();
+    const ids = (data ?? []).map((r) => r.user_id);
+    expect(ids).toContain(userA);
+    // B can read their own gamification row, but has not opted in.
+    expect(ids).not.toContain(userB);
+  });
+
+  it("collector profile embed returns gamification as a single object", async () => {
+    const b = await userClient(emailB, password);
+    const { data, error } = await b
+      .from("user_profiles")
+      .select("user_id, user_gamification!inner(total_xp, current_streak)")
+      .eq("user_id", userA)
+      .eq("leaderboard_opt_in", true)
+      .single();
+    expect(error).toBeNull();
+    expect(Array.isArray(data?.user_gamification)).toBe(false);
+    expect(data?.user_gamification).toMatchObject({ total_xp: expect.any(Number) });
   });
 });

@@ -5,6 +5,7 @@
 import {
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -174,14 +175,26 @@ export const notificationSendLog = pgTable(
   (t) => [index("notification_send_log_user_created_idx").on(t.userId, t.createdAt)],
 );
 
-export const userGamification = pgTable("user_gamification", {
-  userId: uuid("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),
-  totalXp: integer("total_xp").notNull().default(0),
-  lastActiveDate: date("last_active_date", { mode: "string" }),
-  currentStreak: integer("current_streak").notNull().default(0),
-  longestStreak: integer("longest_streak").notNull().default(0),
-  barcodeScanCount: integer("barcode_scan_count").notNull().default(0),
-});
+export const userGamification = pgTable(
+  "user_gamification",
+  {
+    userId: uuid("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),
+    totalXp: integer("total_xp").notNull().default(0),
+    lastActiveDate: date("last_active_date", { mode: "string" }),
+    currentStreak: integer("current_streak").notNull().default(0),
+    longestStreak: integer("longest_streak").notNull().default(0),
+    barcodeScanCount: integer("barcode_scan_count").notNull().default(0),
+  },
+  (t) => [
+    // 1:1 with user_profiles. PostgREST only embeds across a direct FK, and the leaderboard
+    // queries join these two tables (fetchLeaderboard / fetchPublicCollectorProfile).
+    foreignKey({
+      name: "user_gamification_user_id_user_profiles_user_id_fk",
+      columns: [t.userId],
+      foreignColumns: [userProfiles.userId],
+    }).onDelete("cascade"),
+  ],
+);
 
 /**
  * Rule + XP for each achievement, mirroring ACHIEVEMENT_CATALOG in packages/shared.
