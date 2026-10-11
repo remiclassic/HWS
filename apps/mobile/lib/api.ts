@@ -52,12 +52,6 @@ async function requireUserId(): Promise<string> {
   return data.user.id;
 }
 
-function throwIf<T>(result: { data: T | null; error: { message: string } | null }): T {
-  if (result.error) throw new Error(result.error.message);
-  if (result.data === null) throw new Error("No data returned");
-  return result.data;
-}
-
 async function signPhoto(path: string): Promise<string> {
   const { data, error } = await supabase.storage
     .from(PHOTO_BUCKET)
