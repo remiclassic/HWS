@@ -1,19 +1,15 @@
 import { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { PrimaryButton } from "../../../components/ui/PrimaryButton";
+import { useToast } from "../../../components/ui/Toast";
+import { errorMessage } from "../../../lib/errors";
 import { theme } from "../../../lib/theme";
 import { uploadGarageItemPhoto } from "../../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
@@ -35,6 +31,7 @@ export default function GarageItemPhotoScreen() {
   const [ready, setReady] = useState(false);
   const [, setTick] = useState(0);
   const qc = useQueryClient();
+  const toast = useToast();
 
   const upload = useMutation({
     mutationFn: async (input: { uri: string; mime: string }) => {
@@ -59,14 +56,16 @@ export default function GarageItemPhotoScreen() {
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await qc.invalidateQueries({ queryKey: ["gamification"] });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (res.queued) {
-        Alert.alert("Offline", "Photo upload queued for when you're online.");
-      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast.show(
+        res.queued
+          ? { kind: "info", message: "Offline — photo will upload when you’re back online." }
+          : { message: "Photo added" },
+      );
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)/garage");
     },
-    onError: (e) => Alert.alert("Upload failed", e instanceof Error ? e.message : String(e)),
+    onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
   const onShutter = useCallback(() => {
@@ -76,16 +75,16 @@ export default function GarageItemPhotoScreen() {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         const pic = await camRef.current?.takePictureAsync({ quality: 0.9 });
         if (!pic?.uri) {
-          Alert.alert("Camera", "Could not capture a photo. Try again.");
+          toast.show({ kind: "error", message: "Couldn’t capture a photo. Try again." });
           return;
         }
         const prepared = await preparePhotoForUpload(pic.uri, guessMimeFromUri(pic.uri), pic.width, pic.height);
         upload.mutate({ uri: prepared.uri, mime: prepared.mimeType });
       } catch (e) {
-        Alert.alert("Camera", e instanceof Error ? e.message : String(e));
+        toast.show({ kind: "error", message: errorMessage(e) });
       }
     })();
-  }, [ready, upload]);
+  }, [ready, upload, toast]);
 
   const pickFromLibrary = useCallback(() => {
     if (upload.isPending) return;
@@ -93,7 +92,7 @@ export default function GarageItemPhotoScreen() {
       try {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert("Photos", "Photo library permission is required.");
+          toast.show({ kind: "error", message: "Allow photo library access to pick a photo." });
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -112,15 +111,17 @@ export default function GarageItemPhotoScreen() {
         );
         upload.mutate({ uri: prepared.uri, mime: prepared.mimeType });
       } catch (e) {
-        Alert.alert("Pick photo", e instanceof Error ? e.message : String(e));
+        toast.show({ kind: "error", message: errorMessage(e) });
       }
     })();
-  }, [upload]);
+  }, [upload, toast]);
 
   if (!garageItemId) {
     return (
       <View style={styles.center}>
-        <Text style={styles.err}>Missing garage item.</Text>
+        <EmptyState icon="car-off" title="Entry not found" body="Open this from a car in your garage.">
+          <PrimaryButton label="Go back" variant="ghost" onPress={() => router.back()} />
+        </EmptyState>
       </View>
     );
   }
@@ -129,19 +130,14 @@ export default function GarageItemPhotoScreen() {
   if (Platform.OS === "web") {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="image-plus" size={48} color={theme.accent} />
-        <Text style={styles.title}>Upload a photo</Text>
-        <Text style={styles.sub}>Choose an image from your device — it&apos;s resized and metadata stripped before upload.</Text>
-        <Pressable style={styles.btn} onPress={pickFromLibrary} disabled={upload.isPending}>
-          {upload.isPending ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.btnTxt}>Choose file</Text>
-          )}
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={() => router.back()}>
-          <Text style={styles.btnGhostTxt}>Cancel</Text>
-        </Pressable>
+        <EmptyState
+          icon="image-plus"
+          title="Upload a photo"
+          body="Choose an image from your device — it’s resized and metadata is stripped before upload."
+        >
+          <PrimaryButton label="Choose file" onPress={pickFromLibrary} loading={upload.isPending} />
+          <PrimaryButton label="Cancel" variant="ghost" onPress={() => router.back()} />
+        </EmptyState>
       </View>
     );
   }
@@ -149,7 +145,7 @@ export default function GarageItemPhotoScreen() {
   if (!permission) {
     return (
       <View style={styles.center}>
-        <Text style={styles.muted}>Checking camera…</Text>
+        <ActivityIndicator color={theme.accentSecondary} size="large" />
       </View>
     );
   }
@@ -157,23 +153,20 @@ export default function GarageItemPhotoScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="camera-outline" size={44} color={theme.accent} />
-        <Text style={styles.title}>Camera access</Text>
-        <Text style={styles.sub}>Allow the camera to snap a photo, or pick one from your library.</Text>
-        <Pressable
-          style={styles.btn}
-          onPress={() => {
-            void requestPermission().then(() => setTick((t) => t + 1));
-          }}
+        <EmptyState
+          icon="camera-outline"
+          title="Camera access"
+          body="Allow the camera to snap a photo, or pick one from your library."
         >
-          <Text style={styles.btnTxt}>Allow camera</Text>
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={pickFromLibrary}>
-          <Text style={styles.btnGhostTxt}>Pick from library</Text>
-        </Pressable>
-        <Pressable style={styles.btnGhost} onPress={() => router.back()}>
-          <Text style={styles.btnGhostTxt}>Cancel</Text>
-        </Pressable>
+          <PrimaryButton
+            label="Allow camera"
+            onPress={() => {
+              void requestPermission().then(() => setTick((t) => t + 1));
+            }}
+          />
+          <PrimaryButton label="Pick from library" variant="ghost" onPress={pickFromLibrary} />
+          <PrimaryButton label="Cancel" variant="ghost" onPress={() => router.back()} />
+        </EmptyState>
       </View>
     );
   }

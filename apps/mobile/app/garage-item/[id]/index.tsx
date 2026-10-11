@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -11,6 +11,7 @@ import {
   GarageEntryForm,
   type GarageEntryDraft,
 } from "../../../components/garage/GarageEntryForm";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { HuntBadge } from "../../../components/ui/HuntBadge";
 import { LineChip } from "../../../components/ui/LineChip";
@@ -129,19 +130,8 @@ export default function GarageItemEditScreen() {
     onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
-  const confirmRemovePhoto = useCallback(
-    (photoId: string) => {
-      Alert.alert("Remove photo?", "This deletes the image from your garage entry.", [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => delPhoto.mutate(photoId),
-        },
-      ]);
-    },
-    [delPhoto],
-  );
+  const [photoToRemove, setPhotoToRemove] = useState<string | null>(null);
+  const confirmRemovePhoto = useCallback((photoId: string) => setPhotoToRemove(photoId), []);
 
   const wideColumn =
     isWide && contentMaxWidth != null
@@ -253,6 +243,19 @@ export default function GarageItemEditScreen() {
 
         <GarageEntryForm value={draft} onChange={setDraft} />
       </ScrollView>
+
+      <ConfirmDialog
+        visible={photoToRemove != null}
+        title="Remove photo?"
+        message="This deletes the image from your garage entry."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (photoToRemove) delPhoto.mutate(photoToRemove);
+          setPhotoToRemove(null);
+        }}
+        onCancel={() => setPhotoToRemove(null)}
+      />
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + theme.spaceMd }]}>
         <View style={[styles.footerInner, wideColumn]}>

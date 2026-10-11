@@ -5,7 +5,7 @@ export default function PrivacyScreen() {
   return (
     <ScrollView {...themedScrollIndicatorProps} style={styles.root} contentContainerStyle={styles.content}>
       <Text style={styles.p}>
-        Hot Wheels Spotter collects only what is needed to run the app: an account record (anonymous or email-based),
+        Hot Wheels Spotter collects only what is needed to run the app: an account record tied to your email address,
         your garage entries, optional leaderboard display fields you choose, and push tokens if you enable want-list
         alerts.
       </Text>

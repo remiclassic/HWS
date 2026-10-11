@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Platform, ScrollView, Share, StyleSheet, Switch, Text, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -9,6 +9,7 @@ import { TextField } from "../components/ui/TextField";
 import { useToast } from "../components/ui/Toast";
 import { useResponsiveLayout } from "../hooks/useResponsiveLayout";
 import { errorMessage } from "../lib/errors";
+import { exportJson } from "../lib/exportJson";
 import { useOnboarding } from "../contexts/OnboardingContext";
 import {
   deleteMeAccount,
@@ -105,8 +106,7 @@ export default function SettingsScreen() {
   const onExportData = useCallback(async () => {
     try {
       const data = await fetchMeExport();
-      const json = JSON.stringify(data, null, 2);
-      await Share.share({ message: json, title: "Hot Wheels Spotter export" });
+      await exportJson("hotwheels-spotter", "Hot Wheels Spotter export", data);
     } catch (e) {
       toast.show({ kind: "error", message: errorMessage(e) });
     }

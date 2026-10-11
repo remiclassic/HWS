@@ -1,9 +1,12 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Card } from "../../components/ui/Card";
 import { ConfidenceBar } from "../../components/ui/ConfidenceBar";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { PrimaryButton } from "../../components/ui/PrimaryButton";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { fetchThExplanation } from "../../lib/api";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
@@ -21,18 +24,20 @@ export default function ThExplanationScreen() {
   if (!carId) {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="fire-off" size={36} color={theme.textMuted} />
-        <Text style={styles.error}>Missing car id.</Text>
-        <Text style={styles.errorSub}>Open this screen from a casting that has hunt data.</Text>
+        <EmptyState icon="fire-off" title="Guide not found" body="Open this from a casting that has hunt data.">
+          <PrimaryButton label="Go back" variant="ghost" onPress={() => router.back()} />
+        </EmptyState>
       </View>
     );
   }
 
   if (q.isLoading) {
     return (
-      <View style={styles.center}>
-        <MaterialCommunityIcons name="fire-circle" size={40} color={theme.accentSecondary} />
-        <Text style={styles.muted}>Pulling TH intel…</Text>
+      <View style={[styles.container, styles.loading]} accessibilityLabel="Loading field guide">
+        <Skeleton height={132} radius={theme.radiusLg} />
+        <Skeleton height={8} radius={theme.radiusFull} />
+        <Skeleton height={110} radius={theme.radiusMd} />
+        <Skeleton height={160} radius={theme.radiusMd} />
       </View>
     );
   }
@@ -40,9 +45,14 @@ export default function ThExplanationScreen() {
   if (q.isError || !q.data) {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="alert-outline" size={36} color={theme.danger} />
-        <Text style={styles.error}>Could not load explanation.</Text>
-        <Text style={styles.errorSub}>Check your connection and try again.</Text>
+        <EmptyState
+          icon="cloud-off-outline"
+          tone="danger"
+          title="Couldn’t load the field guide"
+          body="Check your connection and try again."
+        >
+          <PrimaryButton label="Try again" onPress={() => void q.refetch()} loading={q.isFetching} />
+        </EmptyState>
       </View>
     );
   }
@@ -84,7 +94,7 @@ export default function ThExplanationScreen() {
                 <MaterialCommunityIcons
                   name="checkbox-marked-circle-outline"
                   size={20}
-                  color={theme.accentSecondary}
+                  color={theme.trackYellow}
                 />
                 <Text style={styles.marker}>{m}</Text>
               </View>
@@ -116,14 +126,8 @@ const styles = StyleSheet.create({
     paddingBottom: theme.space2xl,
     backgroundColor: theme.bg,
   },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: theme.bg,
-    padding: theme.spaceXl,
-    gap: theme.spaceMd,
-  },
+  center: { flex: 1, justifyContent: "center", backgroundColor: theme.bg },
+  loading: { flex: 1, gap: theme.spaceLg },
   hero: {
     backgroundColor: theme.bgElevated,
     borderRadius: theme.radiusLg,
@@ -172,13 +176,4 @@ const styles = StyleSheet.create({
   },
   footnoteTxt: { flex: 1, fontSize: 13, lineHeight: 19, color: theme.textSecondary, fontWeight: "500" },
   muted: { color: theme.textMuted, fontWeight: "600", lineHeight: 20 },
-  error: { color: theme.danger, fontWeight: "800", textAlign: "center" },
-  errorSub: {
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: "500",
-    textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: theme.spaceLg,
-  },
 });

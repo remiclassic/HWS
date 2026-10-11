@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Alert, Platform, Pressable, Share, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
@@ -7,7 +7,10 @@ import { Tabs } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { AppTabBar } from "../../components/navigation/AppTabBar";
 import { IconShareExport, IconSpotterTab, IconGarageTab } from "../../components/icons/AppIcons";
+import { useToast } from "../../components/ui/Toast";
 import { fetchGarage } from "../../lib/api";
+import { errorMessage } from "../../lib/errors";
+import { exportJson } from "../../lib/exportJson";
 import { theme } from "../../lib/theme";
 
 const headerActionsRowStyle = {
@@ -38,37 +41,20 @@ function SettingsHeaderButton() {
 }
 
 function GarageExportHeaderButton() {
+  const toast = useToast();
   const garageQuery = useQuery({ queryKey: ["garage"] as const, queryFn: fetchGarage });
   const onPress = useCallback(() => {
     const items = garageQuery.data?.items;
     if (!items?.length) {
-      Alert.alert("Nothing to export", "Add cars to your garage first.");
+      toast.show({ kind: "info", message: "Nothing to export yet — add cars to your garage first." });
       return;
     }
-    const payload = JSON.stringify(
-      { exportedAt: new Date().toISOString(), version: 1, items },
-      null,
-      2,
-    );
-    if (Platform.OS === "web") {
-      // react-native Share is a no-op on desktop browsers; write a real download.
-      try {
-        const blob = new Blob([payload], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `hotwheels-garage-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 0);
-      } catch (e) {
-        Alert.alert("Export failed", e instanceof Error ? e.message : String(e));
-      }
-      return;
-    }
-    void Share.share({ message: payload, title: "Hot Wheels garage export" });
-  }, [garageQuery.data?.items]);
+    exportJson("hotwheels-garage", "Hot Wheels garage export", {
+      exportedAt: new Date().toISOString(),
+      version: 1,
+      items,
+    }).catch((e) => toast.show({ kind: "error", message: errorMessage(e) }));
+  }, [garageQuery.data?.items, toast]);
   return (
     <Pressable
       onPress={onPress}
