@@ -17,17 +17,17 @@ type Base = {
   a11yLabel: string;
 };
 
-/** Catalog filters: icon chip; optional press tooltip via `tooltipTitle` + `onPresentTooltip`. */
+/** Catalog filters: icon chip, optionally labelled; press tooltip via `tooltipTitle` + `onPresentTooltip`. */
 type IconChipProps = Base & {
   icon: ReactElement;
-  label?: never;
+  label?: string;
   tooltipTitle?: string;
   tooltipDetail?: string;
   onPresentTooltip?: (anchor: LayoutRectangle, title: string, detail?: string) => void;
   /** From parent: `usePrefersFinePointer()` — hand cursor on desktop web only, not mobile web */
   webShowFinePointer?: boolean;
   /** When selected, tint shell (e.g. field chrome vs hunt yellow vs primary) */
-  selectedTint?: { border: string; background: string };
+  selectedTint?: { border: string; background: string; text?: string };
 };
 
 /** Forms (status, condition): text only, no tooltip overlay */
@@ -53,12 +53,13 @@ export const FilterChip = memo(function FilterChip(props: FilterChipProps) {
 
   const isIconMode = "icon" in props && props.icon != null;
   const icon = isIconMode ? props.icon : null;
-  const label = !isIconMode ? props.label : null;
+  const label = props.label ?? null;
   const tooltipTitle = isIconMode ? props.tooltipTitle : undefined;
   const tooltipDetail = isIconMode ? props.tooltipDetail : undefined;
   const onPresentTooltip = isIconMode ? props.onPresentTooltip : undefined;
   const webShowFinePointer = isIconMode ? props.webShowFinePointer : false;
-  const selectedTint = !isIconMode ? props.selectedTint : undefined;
+  const selectedTint = props.selectedTint;
+  const selectedTextColor = selectedTint ? (selectedTint.text ?? selectedTint.border) : theme.accent;
 
   const wrapRef = useRef<View>(null);
 
@@ -112,7 +113,7 @@ export const FilterChip = memo(function FilterChip(props: FilterChipProps) {
         onPressOut={onPressOut}
         style={[
           styles.wrap,
-          isIconMode ? styles.wrapIcon : styles.wrapText,
+          isIconMode && !label ? styles.wrapIcon : styles.wrapText,
           selected && !selectedTint && styles.on,
           selected &&
             selectedTint && {
@@ -123,19 +124,11 @@ export const FilterChip = memo(function FilterChip(props: FilterChipProps) {
           Platform.OS === "web" && webShowFinePointer && styles.webPointer,
         ]}
       >
-        <Animated.View style={[isIconMode ? styles.iconBox : styles.textBox, popStyle]}>
-          {isIconMode ? (
-            icon
-          ) : (
-            <Text
-              style={[
-                styles.txt,
-                selected && (selectedTint ? { color: selectedTint.text } : styles.txtOn),
-              ]}
-            >
-              {label}
-            </Text>
-          )}
+        <Animated.View style={[styles.content, popStyle]}>
+          {icon}
+          {label ? (
+            <Text style={[styles.txt, selected && { color: selectedTextColor }]}>{label}</Text>
+          ) : null}
         </Animated.View>
       </ReanimatedPressable>
     </View>
@@ -162,21 +155,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spaceMd,
   },
   wrapText: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
   },
   on: {
     borderColor: theme.accent,
     backgroundColor: theme.accentMuted,
   },
-  iconBox: {
+  content: {
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
+    gap: 6,
   },
-  textBox: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  txt: { fontSize: 13, fontWeight: "600", color: theme.textSecondary },
-  txtOn: { color: theme.accent },
+  txt: { fontSize: 14, fontWeight: "700", color: theme.textSecondary },
   webPointer: { cursor: "pointer" as const },
 });

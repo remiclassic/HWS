@@ -55,7 +55,28 @@ export const ConfidenceBar = memo(function ConfidenceBar({
   );
 });
 
+function confidenceColor(score: number): string {
+  if (score >= 0.8) return theme.success;
+  if (score >= 0.5) return theme.trackYellow;
+  return theme.trackOrange;
+}
+
+/** Compact confidence for list rows — the full bar belongs on detail screens. */
+export const ConfidencePill = memo(function ConfidencePill({ score }: { score: number }) {
+  const clamped = Math.min(1, Math.max(0, score));
+  const pct = Math.round(clamped * 100);
+  return (
+    <View style={styles.pill} accessible accessibilityLabel={`Reference confidence ${pct}%`}>
+      <View style={[styles.pillDot, { backgroundColor: confidenceColor(clamped) }]} />
+      <Text style={styles.pillTxt}>{pct}%</Text>
+    </View>
+  );
+});
+
 const styles = StyleSheet.create({
+  pill: { flexDirection: "row", alignItems: "center", gap: 5 },
+  pillDot: { width: 7, height: 7, borderRadius: 4 },
+  pillTxt: { fontSize: 12, fontWeight: "700", color: theme.textSecondary, fontVariant: ["tabular-nums"] },
   tooltipAnchor: { alignSelf: "stretch", width: "100%" },
   wrap: { marginTop: theme.spaceSm },
   row: {
@@ -75,6 +96,6 @@ const styles = StyleSheet.create({
   fill: {
     height: "100%",
     borderRadius: theme.radiusFull,
-    backgroundColor: theme.accent,
+    backgroundColor: theme.accentSecondary,
   },
 });

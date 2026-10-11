@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Platform, ScrollView, Share, StyleSheet, Switch, Text, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Card } from "../components/ui/Card";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { ListGroup, ListRow } from "../components/ui/ListRow";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
+import { TextField } from "../components/ui/TextField";
+import { useToast } from "../components/ui/Toast";
+import { useResponsiveLayout } from "../hooks/useResponsiveLayout";
+import { errorMessage } from "../lib/errors";
 import { useOnboarding } from "../contexts/OnboardingContext";
 import {
   deleteMeAccount,
@@ -33,6 +27,8 @@ import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
 export default function SettingsScreen() {
   const qc = useQueryClient();
+  const toast = useToast();
+  const { isWide, contentMaxWidth } = useResponsiveLayout();
   const { replayIntro } = useOnboarding();
   const settingsQ = useQuery({ queryKey: ["me-settings"] as const, queryFn: fetchMeSettings });
   const gamificationQ = useQuery({ queryKey: ["gamification"] as const, queryFn: fetchGamification });
@@ -74,7 +70,11 @@ export default function SettingsScreen() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["me-settings"] });
     },
-    onError: (e) => Alert.alert("Could not update settings", String(e)),
+    onError: (e) => {
+      // Roll the switch back so it never shows a state the server rejected
+      setWantPush((v) => !v);
+      toast.show({ kind: "error", message: errorMessage(e) });
+    },
   });
 
   const onToggleWant = useCallback(
@@ -90,8 +90,9 @@ export default function SettingsScreen() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["gamification"] });
       await qc.invalidateQueries({ queryKey: ["leaderboard"] });
+      toast.show({ message: "Leaderboard settings saved" });
     },
-    onError: (e) => Alert.alert("Could not save leaderboard settings", String(e)),
+    onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
   const onSaveLeaderboard = useCallback(() => {
@@ -107,18 +108,18 @@ export default function SettingsScreen() {
       const json = JSON.stringify(data, null, 2);
       await Share.share({ message: json, title: "Hot Wheels Spotter export" });
     } catch (e) {
-      Alert.alert("Export failed", String(e));
+      toast.show({ kind: "error", message: errorMessage(e) });
     }
-  }, []);
+  }, [toast]);
 
   const deleteAccountMut = useMutation({
     mutationFn: deleteMeAccount,
     onSuccess: async () => {
       await signOut();
       router.replace("/login");
-      Alert.alert("Account deleted", "Your account and data have been removed.");
+      toast.show({ kind: "info", message: "Account deleted. Your data has been removed." });
     },
-    onError: (e) => Alert.alert("Could not delete account", String(e)),
+    onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
   const confirmDeleteAccount = useCallback(() => setDeleteOpen(true), []);
@@ -138,184 +139,162 @@ export default function SettingsScreen() {
         setSignOutOpen(false);
         router.replace("/login");
       } catch (e) {
-        Alert.alert("Sign out failed", e instanceof Error ? e.message : String(e));
+        toast.show({ kind: "error", message: errorMessage(e) });
       } finally {
         setSigningOut(false);
       }
     })();
-  }, []);
+  }, [toast]);
+
+  const email = accountQ.data?.email;
+  const g = gamificationQ.data;
+  const leaderboardDirty =
+    g != null &&
+    (displayName.trim() !== (g.display_name ?? "") || leaderboardOptIn !== g.leaderboard_opt_in);
+  const leaderboardBusy = saveLeaderboard.isPending || gamificationQ.isLoading;
+  const switchColors = { false: theme.border, true: theme.accentSecondary };
+  const wideColumn = isWide
+    ? { maxWidth: contentMaxWidth, width: "100%" as const, alignSelf: "center" as const }
+    : undefined;
 
   return (
     <ScrollView
       {...themedScrollIndicatorProps}
       style={styles.root}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, wideColumn]}
+      keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.kicker}>Preferences</Text>
-      <Text style={styles.title}>Settings</Text>
-
-      <Pressable
-        onPress={() => router.push("/collector-progress")}
-        style={styles.progressLink}
-        accessibilityRole="button"
-        accessibilityLabel="Open collector progress"
-      >
-        <Text style={styles.progressLinkTxt}>Collector progress & achievements</Text>
-      </Pressable>
-
-      <Card title="Account" style={styles.card}>
-        <Text style={styles.hint}>
-          {accountQ.data?.email ? `Signed in as ${accountQ.data.email}.` : "Signed in."}
-        </Text>
-        <Pressable
-          onPress={confirmSignOut}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-        >
-          <Text style={styles.stackLinkTxt}>Sign out</Text>
-        </Pressable>
-      </Card>
-
-      <Card title="Leaderboard & public profile" style={styles.card}>
-        <Text style={styles.hint}>
-          Opt in to appear on the public leaderboard. We show a display name, level, and XP — not your email
-          or device id. Turning this off removes you from the board and clears your shareable link.
-        </Text>
-        <Text style={styles.inputLabel}>Display name</Text>
-        <TextInput
-          value={displayName}
-          onChangeText={setDisplayName}
-          placeholder="e.g. Trackside Tom"
-          placeholderTextColor={theme.textMuted}
-          maxLength={32}
-          style={styles.textInput}
-          editable={!saveLeaderboard.isPending && !gamificationQ.isLoading}
-        />
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>Show on leaderboard</Text>
-            <Text style={styles.rowSub}>
-              {gamificationQ.data?.leaderboard_slug
-                ? `Slug: ${gamificationQ.data.leaderboard_slug}`
-                : "A random slug is created when you opt in."}
-            </Text>
-          </View>
-          <Switch
-            value={leaderboardOptIn}
-            onValueChange={setLeaderboardOptIn}
-            disabled={saveLeaderboard.isPending || gamificationQ.isLoading}
-            trackColor={{ false: theme.border, true: theme.accentMuted }}
-            thumbColor={leaderboardOptIn ? theme.accent : theme.bgSubtle}
-          />
-        </View>
-        <Pressable
-          onPress={onSaveLeaderboard}
-          disabled={saveLeaderboard.isPending || gamificationQ.isLoading}
-          style={({ pressed }) => [
-            styles.saveLbBtn,
-            (saveLeaderboard.isPending || gamificationQ.isLoading) && styles.saveLbBtnDisabled,
-            pressed && !saveLeaderboard.isPending && styles.saveLbBtnPressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Save leaderboard settings"
-        >
-          <Text style={styles.saveLbBtnTxt}>
-            {saveLeaderboard.isPending ? "Saving…" : "Save leaderboard settings"}
+      <View style={styles.profile}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarTxt}>
+            {(g?.display_name ?? email ?? "?").trim().charAt(0).toUpperCase() || "?"}
           </Text>
-        </Pressable>
-      </Card>
-
-      <Card title="Want list alerts" style={styles.card}>
-        <Text style={styles.hint}>
-          When catalog data is refreshed for a car on your Want list, we can send a push notification
-          (requires Expo push credentials on the server).
-        </Text>
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>Notify on catalog updates</Text>
-            <Text style={styles.rowSub}>Uses your Spotter account on this device.</Text>
-          </View>
-          <Switch
-            value={wantPush}
-            onValueChange={onToggleWant}
-            disabled={savePrefs.isPending || settingsQ.isLoading}
-            trackColor={{ false: theme.border, true: theme.accentMuted }}
-            thumbColor={wantPush ? theme.accent : theme.bgSubtle}
-          />
         </View>
-        {Platform.OS === "web" ? (
-          <Text style={styles.webNote}>Push registration applies on iOS and Android builds only.</Text>
+        <View style={styles.profileText}>
+          <Text style={styles.profileName} numberOfLines={1}>
+            {g?.display_name ?? email ?? "Collector"}
+          </Text>
+          <Text style={styles.profileSub} numberOfLines={1}>
+            {g?.display_name && email ? email : "Signed in"}
+          </Text>
+        </View>
+        {g ? (
+          <View style={styles.levelPill}>
+            <Text style={styles.levelPillTxt}>Lv {g.level}</Text>
+          </View>
         ) : null}
-      </Card>
+      </View>
 
-      <Card title="Legal" style={styles.card}>
-        <Text style={styles.hint}>Review how we handle data before linking an email or enabling alerts.</Text>
-        <Pressable
-          onPress={() => router.push("/legal/privacy")}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Privacy"
-        >
-          <Text style={styles.stackLinkTxt}>Privacy</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/legal/terms")}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Terms"
-        >
-          <Text style={styles.stackLinkTxt}>Terms of service</Text>
-        </Pressable>
-      </Card>
+      <ListGroup>
+        <ListRow
+          icon="trophy-outline"
+          title="Collector progress"
+          subtitle="Level, streaks, and achievements"
+          onPress={() => router.push("/collector-progress")}
+        />
+      </ListGroup>
 
-      <Card title="Your data" style={styles.card}>
-        <Text style={styles.hint}>
-          Export a JSON copy of your garage and preferences. Deleting your account removes server-side data for your
-          profile (see Privacy for details).
-        </Text>
-        <Pressable
+      <ListGroup title="Account">
+        <ListRow icon="logout" title="Sign out" subtitle={email ?? undefined} onPress={confirmSignOut} />
+      </ListGroup>
+
+      <ListGroup
+        title="Leaderboard"
+        footnote="Shows your display name, level, and XP — never your email. Turning this off removes you from the board and clears your shareable link."
+      >
+        <ListRow
+          icon="podium"
+          title="Show me on the leaderboard"
+          subtitle={
+            g?.leaderboard_slug
+              ? `Profile link: ${g.leaderboard_slug}`
+              : "A profile link is created when you opt in"
+          }
+          accessory={
+            <Switch
+              value={leaderboardOptIn}
+              onValueChange={setLeaderboardOptIn}
+              disabled={leaderboardBusy}
+              trackColor={switchColors}
+              thumbColor="#fff"
+              accessibilityLabel="Show me on the leaderboard"
+            />
+          }
+        />
+        <View style={styles.groupForm}>
+          <TextField
+            label="Display name"
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="e.g. Trackside Tom"
+            maxLength={32}
+            editable={!leaderboardBusy}
+          />
+          <PrimaryButton
+            label="Save"
+            onPress={onSaveLeaderboard}
+            loading={saveLeaderboard.isPending}
+            disabled={!leaderboardDirty || leaderboardBusy}
+          />
+        </View>
+      </ListGroup>
+
+      <ListGroup
+        title="Notifications"
+        footnote={
+          Platform.OS === "web"
+            ? "Push alerts are available in the iOS and Android apps."
+            : "We’ll ping you when catalog data changes for a car on your want list."
+        }
+      >
+        <ListRow
+          icon="bell-outline"
+          title="Want list alerts"
+          accessory={
+            <Switch
+              value={wantPush}
+              onValueChange={onToggleWant}
+              disabled={savePrefs.isPending || settingsQ.isLoading}
+              trackColor={switchColors}
+              thumbColor="#fff"
+              accessibilityLabel="Want list alerts"
+            />
+          }
+        />
+      </ListGroup>
+
+      <ListGroup title="Your data">
+        <ListRow
+          icon="export-variant"
+          title="Export my data"
+          subtitle="A JSON copy of your garage and preferences"
           onPress={() => void onExportData()}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Export my data"
-        >
-          <Text style={styles.stackLinkTxt}>Export my data</Text>
-        </Pressable>
-        <Pressable
-          onPress={confirmDeleteAccount}
+        />
+        <ListRow
+          divider
+          icon="trash-can-outline"
+          title={deleteAccountMut.isPending ? "Deleting…" : "Delete account"}
+          tone="danger"
           disabled={deleteAccountMut.isPending}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Delete account"
-        >
-          <Text style={[styles.stackLinkTxt, styles.dangerLink]}>
-            {deleteAccountMut.isPending ? "Deleting…" : "Delete account"}
-          </Text>
-        </Pressable>
-      </Card>
+          onPress={confirmDeleteAccount}
+        />
+      </ListGroup>
 
-      <Card title="Intro" style={styles.card}>
-        <Text style={styles.hint}>See the welcome slides again.</Text>
-        <Pressable
-          onPress={() => void replayIntro()}
-          style={styles.stackLinkWrap}
-          accessibilityRole="button"
-          accessibilityLabel="Replay intro"
-        >
-          <Text style={styles.stackLinkTxt}>Replay intro</Text>
-        </Pressable>
-      </Card>
-
-      <Card title="Tips" style={styles.card}>
-        <Text style={styles.hint}>
-          Set EXPO_ACCESS_TOKEN on the API host to enable outbound push. Pair the app with an EAS project
-          ID so this device can obtain an Expo push token.
-        </Text>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close settings">
-          <Text style={styles.link}>Close</Text>
-        </Pressable>
-      </Card>
+      <ListGroup title="About">
+        <ListRow icon="play-circle-outline" title="Replay intro" onPress={() => void replayIntro()} />
+        <ListRow
+          divider
+          icon="shield-lock-outline"
+          title="Privacy"
+          onPress={() => router.push("/legal/privacy")}
+        />
+        <ListRow
+          divider
+          icon="file-document-outline"
+          title="Terms of service"
+          onPress={() => router.push("/legal/terms")}
+        />
+      </ListGroup>
 
       <ConfirmDialog
         visible={signOutOpen}
@@ -344,60 +323,31 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   content: { padding: theme.spaceLg, paddingBottom: theme.space3xl },
-  kicker: { ...theme.typeKicker, color: theme.accent },
-  title: { ...theme.typeTitleLg, fontSize: 26, color: theme.text, marginTop: 4 },
-  progressLink: {
-    marginTop: theme.spaceMd,
-    paddingVertical: theme.spaceSm,
-  },
-  progressLinkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
-  card: { marginTop: theme.spaceLg },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: theme.textMuted,
-    marginBottom: 6,
-  },
-  textInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    borderRadius: theme.radiusMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontWeight: "600",
-    color: theme.text,
-    backgroundColor: theme.bgSubtle,
-    marginBottom: theme.spaceMd,
-  },
-  saveLbBtn: {
-    marginTop: theme.spaceMd,
-    paddingVertical: 14,
-    borderRadius: theme.radiusMd,
-    backgroundColor: theme.accent,
+  profile: { flexDirection: "row", alignItems: "center", gap: theme.spaceMd },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.accentSecondaryMuted,
+    borderWidth: 1,
+    borderColor: theme.accentSecondary,
   },
-  saveLbBtnPressed: { opacity: 0.92 },
-  saveLbBtnDisabled: { opacity: 0.55 },
-  saveLbBtnTxt: { fontSize: 16, fontWeight: "800", color: theme.bg },
-  hint: {
-    fontSize: 14,
-    color: theme.textMuted,
-    lineHeight: 20,
-    fontWeight: "500",
-    marginBottom: theme.spaceMd,
+  avatarTxt: { fontSize: 22, fontWeight: "900", color: theme.accentSecondary },
+  profileText: { flex: 1, minWidth: 0 },
+  profileName: { ...theme.typeTitleMd, fontSize: 20, color: theme.text },
+  profileSub: { marginTop: 2, fontSize: 14, fontWeight: "500", color: theme.textSecondary },
+  levelPill: {
+    paddingHorizontal: theme.spaceMd,
+    paddingVertical: 6,
+    borderRadius: theme.radiusFull,
+    backgroundColor: theme.accentYellowMuted,
   },
-  row: { flexDirection: "row", alignItems: "center", gap: theme.spaceMd },
-  rowTitle: { fontSize: 16, fontWeight: "800", color: theme.text },
-  rowSub: { fontSize: 13, color: theme.textMuted, marginTop: 4, fontWeight: "500" },
-  webNote: { marginTop: theme.spaceMd, fontSize: 13, color: theme.textSecondary, fontWeight: "600" },
-  link: {
-    marginTop: theme.spaceMd,
-    fontSize: 16,
-    fontWeight: "800",
-    color: theme.accent,
+  levelPillTxt: { fontSize: 13, fontWeight: "800", color: theme.trackYellow },
+  groupForm: {
+    padding: theme.spaceLg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.border,
   },
-  stackLinkWrap: { paddingVertical: theme.spaceSm },
-  stackLinkTxt: { fontSize: 16, fontWeight: "800", color: theme.accent },
-  dangerLink: { color: theme.danger },
 });

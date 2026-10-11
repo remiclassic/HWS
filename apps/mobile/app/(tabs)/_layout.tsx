@@ -13,19 +13,26 @@ import { theme } from "../../lib/theme";
 const headerActionsRowStyle = {
   flexDirection: "row" as const,
   alignItems: "center" as const,
-  gap: 14,
-  paddingRight: 18,
+  gap: theme.spaceXs,
+  paddingRight: theme.spaceSm,
+};
+
+const headerButtonStyle = {
+  width: theme.touchTargetMin,
+  height: theme.touchTargetMin,
+  alignItems: "center" as const,
+  justifyContent: "center" as const,
 };
 
 function SettingsHeaderButton() {
   return (
     <Pressable
       onPress={() => router.push("/settings")}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={headerButtonStyle}
       accessibilityRole="button"
       accessibilityLabel="Open settings"
     >
-      <MaterialCommunityIcons name="cog-outline" size={24} color={theme.accent} />
+      <MaterialCommunityIcons name="cog-outline" size={24} color={theme.textSecondary} />
     </Pressable>
   );
 }
@@ -65,11 +72,11 @@ function GarageExportHeaderButton() {
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={headerButtonStyle}
       accessibilityRole="button"
       accessibilityLabel="Export garage as JSON"
     >
-      <IconShareExport color={theme.accent} size={24} />
+      <IconShareExport color={theme.textSecondary} size={24} />
     </Pressable>
   );
 }
@@ -83,15 +90,16 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: true,
         headerStyle: {
-          backgroundColor: theme.bgElevated,
+          backgroundColor: theme.bg,
         },
         headerShadowVisible: false,
-        headerTintColor: theme.accent,
+        headerTintColor: theme.text,
+        headerTitleAlign: "left",
         headerTitleStyle: {
-          fontWeight: "800",
-          fontSize: 17,
+          fontWeight: "900",
+          fontSize: 24,
           color: theme.text,
-          letterSpacing: -0.2,
+          letterSpacing: -0.4,
         },
         tabBarActiveTintColor: theme.accent,
         tabBarInactiveTintColor: theme.textMuted,

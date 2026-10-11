@@ -12,28 +12,46 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { PrimaryButton } from "../../components/ui/PrimaryButton";
 import { useOnboarding } from "../../contexts/OnboardingContext";
 import { theme } from "../../lib/theme";
 
-const SLIDES: { title: string; body: string; kicker?: string }[] = [
+type Slide = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  tint: string;
+  title: string;
+  body: string;
+  kicker?: string;
+};
+
+const SLIDES: Slide[] = [
   {
+    icon: "car-search-outline",
+    tint: theme.accentSecondary,
     kicker: "Welcome, collector",
     title: "The whole aisle — in your pocket",
     body: "Hunt Mainline, Premium, RLC, and every Treasure Hunt level with filters that snap. Tap a casting and go deep on wheels, deco, and intel before you buy or trade.",
   },
   {
+    icon: "garage-variant",
+    tint: theme.trackOrange,
     kicker: "Your garage",
     title: "Own every pull",
     body: "Log owned, want, and dupes in seconds. This profile starts on-device — add an email in Settings whenever you're ready and your garage rolls with you to the next phone.",
   },
   {
+    icon: "shield-check-outline",
+    tint: theme.success,
     kicker: "You're in control",
     title: "Camera & alerts — only when you say so",
     body: "We wake the camera when you open Scan — nowhere else. Want-list buzz? Flip it on in Settings. No surprise pop-ups, no nagging.",
   },
   {
+    icon: "flag-checkered",
+    tint: theme.trackYellow,
     kicker: "Green light",
     title: "Let's hit the pegs",
     body: "You're set. Dig the catalog, stack your garage, and chase the next big score. See you out there.",
@@ -67,7 +85,7 @@ export default function OnboardingScreen() {
     }
   }, [page, completeIntro]);
 
-  const renderItem: ListRenderItem<(typeof SLIDES)[number]> = useCallback(
+  const renderItem: ListRenderItem<Slide> = useCallback(
     ({ item }) => (
       <View style={[styles.slide, { width, height: windowHeight }]}>
         <LinearGradient
@@ -86,6 +104,11 @@ export default function OnboardingScreen() {
           ]}
         >
           <Animated.View entering={FadeInDown.springify().damping(18)} style={styles.slideInner}>
+            <View style={[styles.iconRing, { borderColor: item.tint + "55" }]}>
+              <View style={[styles.iconDisc, { backgroundColor: item.tint + "22" }]}>
+                <MaterialCommunityIcons name={item.icon} size={56} color={item.tint} />
+              </View>
+            </View>
             {item.kicker ? <Text style={styles.kicker}>{item.kicker}</Text> : null}
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.body}>{item.body}</Text>
@@ -129,15 +152,19 @@ export default function OnboardingScreen() {
             <View key={i} style={[styles.dot, i === page && styles.dotActive]} />
           ))}
         </View>
-        <Pressable
-          onPress={goNext}
-          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-          accessibilityRole="button"
-          accessibilityLabel={page < SLIDES.length - 1 ? "Next slide" : "Continue to app"}
-        >
-          <Text style={styles.ctaText}>{page < SLIDES.length - 1 ? "Next" : "Get started"}</Text>
-        </Pressable>
+        <PrimaryButton label={page < SLIDES.length - 1 ? "Next" : "Get started"} onPress={goNext} />
       </View>
+      {page < SLIDES.length - 1 ? (
+        <Pressable
+          onPress={() => void completeIntro()}
+          style={[styles.skip, { top: insets.top + theme.spaceSm }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Skip intro"
+        >
+          <Text style={styles.skipTxt}>Skip</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -155,9 +182,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spaceLg,
   },
   slideInner: { maxWidth: 420, width: "100%", alignItems: "center" },
+  iconRing: {
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.space2xl,
+  },
+  iconDisc: {
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  skip: {
+    position: "absolute",
+    right: theme.spaceLg,
+    minHeight: theme.touchTargetMin,
+    paddingHorizontal: theme.spaceSm,
+    justifyContent: "center",
+  },
+  skipTxt: { fontSize: 16, fontWeight: "700", color: theme.textSecondary },
   kicker: {
     ...theme.typeKicker,
-    color: theme.accent,
+    color: theme.trackYellow,
     marginBottom: 10,
     textAlign: "center",
     letterSpacing: 1.2,
@@ -175,7 +226,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 26,
     color: theme.textSecondary,
-    fontWeight: "600",
+    fontWeight: "500",
     textAlign: "center",
   },
   footer: {
@@ -184,7 +235,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: theme.spaceLg,
-    gap: theme.spaceMd,
+    gap: theme.spaceLg,
   },
   dots: { flexDirection: "row", justifyContent: "center", gap: 8 },
   dot: {
@@ -193,13 +244,5 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: theme.border,
   },
-  dotActive: { backgroundColor: theme.accent, width: 22 },
-  cta: {
-    backgroundColor: theme.accent,
-    paddingVertical: 16,
-    borderRadius: theme.radiusMd,
-    alignItems: "center",
-  },
-  ctaPressed: { opacity: 0.92 },
-  ctaText: { fontSize: 17, fontWeight: "800", color: theme.bg },
+  dotActive: { backgroundColor: theme.text, width: 22 },
 });

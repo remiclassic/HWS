@@ -1,129 +1,72 @@
-import { memo, useCallback, useMemo } from "react";
-import { Alert, FlatList, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import { useCallback, useMemo, useState } from "react";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { IconCloudOff, IconPackage, IconPencil, IconTrash } from "../../components/icons/AppIcons";
-import type { UserCarDto } from "@hotwheels/shared";
-import { ConfidenceBar } from "../../components/ui/ConfidenceBar";
-import { HuntBadge } from "../../components/ui/HuntBadge";
-import { LineChip } from "../../components/ui/LineChip";
-import { RemoteImage } from "../../components/ui/RemoteImage";
-import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
-import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
+import type { LineType, UserCarDto, UserCarStatus } from "@hotwheels/shared";
+import { BottomSheet } from "../../components/ui/BottomSheet";
+import { CarRow } from "../../components/ui/CarRow";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { ListRow } from "../../components/ui/ListRow";
 import { OfflineBanner } from "../../components/ui/OfflineBanner";
+import { PrimaryButton } from "../../components/ui/PrimaryButton";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { CarListSkeleton } from "../../components/ui/Skeleton";
+import { useToast } from "../../components/ui/Toast";
 import { useGarageQueueDepth } from "../../hooks/useGarageQueueDepth";
+import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { deleteGarageItem, fetchGarage } from "../../lib/api";
+import { errorMessage } from "../../lib/errors";
 import { enqueueGarageOp, isTransientNetworkError } from "../../lib/garageMutationQueue";
 import { getIsOnline, useOnline } from "../../lib/network";
-import { motion } from "../../lib/motion";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
 
 const LIST_BELOW_TAB_EXTRA = 12;
 
-const statusStyle: Record<string, { bg: string; fg: string }> = {
-  Owned: { bg: theme.officialBg, fg: theme.officialText },
-  Want: { bg: theme.rlcBg, fg: theme.rlcText },
-  Duplicate: { bg: theme.communityBg, fg: theme.communityText },
+type StatusFilter = "all" | UserCarStatus;
+
+const statusStyle: Record<UserCarStatus, { bg: string; fg: string; label: string }> = {
+  Owned: { bg: theme.officialBg, fg: theme.officialText, label: "Owned" },
+  Want: { bg: theme.rlcBg, fg: theme.rlcText, label: "Want" },
+  Duplicate: { bg: theme.communityBg, fg: theme.communityText, label: "Dupe" },
 };
 
-const GarageCardRow = memo(function GarageCardRow({
-  item,
-  index,
-  wideColumnStyle,
-  onDelete,
-}: {
-  item: UserCarDto;
-  index: number;
-  wideColumnStyle?: ViewStyle;
-  onDelete: (row: UserCarDto) => void;
-}) {
-  const car = item.car;
-  const thumbUri = item.photos?.[0]?.url ?? car?.primary_image_url ?? null;
-  const st = statusStyle[item.status] ?? statusStyle["Owned"];
-  const mainPress = usePressScale(true);
-  const editPress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
-  const trashPress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
+const EMPTY_BY_FILTER: Record<UserCarStatus, { title: string; body: string }> = {
+  Owned: { title: "Nothing owned yet", body: "Cars you mark as Owned show up here." },
+  Want: { title: "Your want list is empty", body: "Mark a casting as Want to keep it on your radar." },
+  Duplicate: { title: "No duplicates logged", body: "Track spares here so you know what’s up for trade." },
+};
 
-  return (
-    <Animated.View
-      entering={FadeInDown.springify()
-        .damping(19)
-        .stiffness(280)
-        .delay(Math.min(index * motion.staggerItemMs, 220))}
-      style={[styles.card, wideColumnStyle]}
-    >
-      <ReanimatedPressable
-        onPress={() => router.push(`/car/${item.car_id}`)}
-        onPressIn={mainPress.onPressIn}
-        onPressOut={mainPress.onPressOut}
-        style={[styles.cardMain, mainPress.animatedStyle]}
-        accessibilityRole="button"
-        accessibilityLabel={`Open reference: ${car?.casting_name ?? "Car"}`}
-      >
-        <View style={styles.cardTop}>
-          <View style={styles.cardTopLeft}>
-            <RemoteImage
-              uri={thumbUri}
-              style={[styles.cardThumb, !thumbUri && styles.cardThumbPlaceholder]}
-              accessibilityLabel={thumbUri ? `${car?.casting_name ?? "Car"} photo` : undefined}
-            />
-            <Text style={styles.cardTitle} numberOfLines={2}>
-              {car?.casting_name ?? "Car"}
-            </Text>
-          </View>
-          <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
-            <Text style={[styles.statusTxt, { color: st.fg }]}>{item.status}</Text>
-          </View>
-        </View>
-        {car ? (
-          <View style={styles.chipRow}>
-            <LineChip line={car.line_type} />
-            <HuntBadge type={car.treasure_hunt_type} />
-          </View>
-        ) : null}
-        <Text style={styles.cardMeta}>
-          {item.condition} · qty {item.quantity}
-          {car?.year ? ` · ${car.year}` : ""}
-        </Text>
-        {car ? <ConfidenceBar score={car.confidence_score} label="Confidence" /> : null}
-      </ReanimatedPressable>
-      <View style={styles.cardActions}>
-        <ReanimatedPressable
-          onPress={() => router.push(`/garage-item/${item.id}`)}
-          hitSlop={8}
-          onPressIn={editPress.onPressIn}
-          onPressOut={editPress.onPressOut}
-          style={[styles.actionBtn, editPress.animatedStyle]}
-          accessibilityLabel="Edit garage entry"
-          accessibilityRole="button"
-        >
-          <IconPencil color={theme.accent} size={22} />
-        </ReanimatedPressable>
-        <ReanimatedPressable
-          onPress={() => onDelete(item)}
-          hitSlop={8}
-          onPressIn={trashPress.onPressIn}
-          onPressOut={trashPress.onPressOut}
-          style={[styles.actionBtn, styles.actionBtnDestructive, trashPress.animatedStyle]}
-          accessibilityLabel="Remove from garage"
-          accessibilityRole="button"
-        >
-          <IconTrash color={theme.danger} size={22} />
-        </ReanimatedPressable>
-      </View>
-    </Animated.View>
-  );
-});
+const LINE_LABEL: Record<LineType, string> = {
+  Mainline: "Mainline",
+  Premium: "Premium",
+  RLC: "RLC",
+  TeamTransport: "Team Transport",
+  Entertainment: "Entertainment",
+  Other: "Other",
+};
+
+/** Line goes in the meta text here — the chip row is reserved for hunt + status. */
+function rowMeta(item: UserCarDto): string {
+  const parts: string[] = [];
+  if (item.car) parts.push(String(item.car.year), LINE_LABEL[item.car.line_type]);
+  if (item.status !== "Want") parts.push(item.condition);
+  return parts.join(" · ");
+}
 
 export default function GarageScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isWide, contentMaxWidth } = useResponsiveLayout();
-  const listBottomPad = tabBarHeight + LIST_BELOW_TAB_EXTRA;
   const online = useOnline();
   const pendingGarage = useGarageQueueDepth();
+  const toast = useToast();
+
+  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [menuFor, setMenuFor] = useState<UserCarDto | null>(null);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const qc = useQueryClient();
   const garageQuery = useQuery({
@@ -148,275 +91,306 @@ export default function GarageScreen() {
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await qc.invalidateQueries({ queryKey: ["gamification"] });
-      if (res.queued) {
-        Alert.alert("Offline", "Remove queued. It will apply when you’re back online.");
-      }
+      toast.show(
+        res.queued
+          ? { kind: "info", message: "Offline — removal will sync when you’re back online." }
+          : { message: "Removed from garage" },
+      );
     },
-    onError: (e) => Alert.alert("Could not remove", String(e)),
+    onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
-  const onDelete = useCallback(
-    (row: UserCarDto) => {
-      Alert.alert("Remove from garage?", row.car?.casting_name ?? "", [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => del.mutate(row.id),
-        },
-      ]);
-    },
-    [del],
+  const allItems = useMemo(() => garageQuery.data?.items ?? [], [garageQuery.data?.items]);
+
+  const counts = useMemo(() => {
+    const c: Record<UserCarStatus, number> = { Owned: 0, Want: 0, Duplicate: 0 };
+    for (const it of allItems) c[it.status] += 1;
+    return c;
+  }, [allItems]);
+
+  const items = useMemo(
+    () => (filter === "all" ? allItems : allItems.filter((i) => i.status === filter)),
+    [allItems, filter],
   );
 
-  const count = garageQuery.data?.items.length ?? 0;
+  const filterOptions = useMemo(
+    () =>
+      [
+        { key: "all", label: "All", count: allItems.length },
+        { key: "Owned", label: "Owned", count: counts.Owned },
+        { key: "Want", label: "Want", count: counts.Want },
+        { key: "Duplicate", label: "Dupes", count: counts.Duplicate },
+      ] as const,
+    [allItems.length, counts],
+  );
+
+  const openMenu = useCallback((row: UserCarDto) => {
+    void Haptics.selectionAsync();
+    setConfirmingRemove(false);
+    setMenuFor(row);
+  }, []);
+
+  const closeMenu = useCallback(() => setMenuFor(null), []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void garageQuery.refetch().finally(() => setRefreshing(false));
+  }, [garageQuery]);
 
   const wideColumnStyle = useMemo((): ViewStyle | undefined => {
     if (!isWide) return undefined;
-    return {
-      maxWidth: contentMaxWidth,
-      alignSelf: "center",
-      width: "100%",
-    };
+    return { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" };
   }, [isWide, contentMaxWidth]);
 
+  const hasItems = allItems.length > 0;
+
   const listHeader = useMemo(
-    () => (
-      <Animated.View entering={FadeInDown.duration(420).delay(30)} style={[styles.header, wideColumnStyle]}>
-        <View style={styles.headerText}>
-          <Text style={styles.kicker}>Your collection state</Text>
-          <Text style={styles.title}>My Garage</Text>
-          <Text style={styles.sub}>
-            {count === 0
-              ? "Save cars from Spotter. Lists cache on this device after a successful sync; export from the header to keep a backup."
-              : `${count} saved item${count === 1 ? "" : "s"} · tap a row for full reference`}
-          </Text>
-          <View style={styles.headerActions}>
+    () =>
+      hasItems ? (
+        <View style={styles.header}>
+          <View style={styles.shortcuts}>
             <Pressable
               onPress={() => router.push("/garage-insights")}
-              style={({ pressed }) => [styles.insightsBtn, pressed && styles.insightsBtnPressed]}
+              style={({ pressed }) => [styles.shortcut, pressed && styles.shortcutPressed]}
               accessibilityRole="button"
               accessibilityLabel="Open garage insights"
             >
-              <MaterialCommunityIcons name="chart-box-outline" size={20} color={theme.accent} />
-              <Text style={styles.insightsBtnTxt}>Insights</Text>
+              <MaterialCommunityIcons name="chart-box-outline" size={20} color={theme.accentSecondary} />
+              <Text style={styles.shortcutTxt}>Insights</Text>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={theme.textMuted} />
             </Pressable>
             <Pressable
               onPress={() => router.push("/collector-progress")}
-              style={({ pressed }) => [styles.insightsBtn, pressed && styles.insightsBtnPressed]}
+              style={({ pressed }) => [styles.shortcut, pressed && styles.shortcutPressed]}
               accessibilityRole="button"
               accessibilityLabel="Open collector progress"
             >
-              <MaterialCommunityIcons name="trophy-outline" size={20} color={theme.accent} />
-              <Text style={styles.insightsBtnTxt}>Progress</Text>
+              <MaterialCommunityIcons name="trophy-outline" size={20} color={theme.trackYellow} />
+              <Text style={styles.shortcutTxt}>Progress</Text>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={theme.textMuted} />
             </Pressable>
           </View>
+          <SegmentedControl
+            options={filterOptions}
+            value={filter}
+            onChange={setFilter}
+            accessibilityLabel="Filter garage by status"
+          />
         </View>
-        <View style={styles.countBadge}>
-          <Text style={styles.countTxt}>{count}</Text>
-        </View>
-      </Animated.View>
-    ),
-    [count, wideColumnStyle],
+      ) : null,
+    [hasItems, filterOptions, filter],
   );
 
   const renderItem = useCallback(
-    ({ item, index }: { item: UserCarDto; index: number }) => (
-      <GarageCardRow item={item} index={index} wideColumnStyle={wideColumnStyle} onDelete={onDelete} />
-    ),
-    [onDelete, wideColumnStyle],
+    ({ item, index }: { item: UserCarDto; index: number }) => {
+      const car = item.car;
+      const name = car?.casting_name ?? "Car";
+      const st = statusStyle[item.status];
+      return (
+        <CarRow
+          index={index}
+          title={name}
+          meta={rowMeta(item)}
+          imageUri={item.photos?.[0]?.url ?? car?.primary_image_url}
+          hunt={car?.treasure_hunt_type}
+          badge={
+            <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
+              <Text style={[styles.statusTxt, { color: st.fg }]}>
+                {st.label}
+                {item.status !== "Want" && item.quantity > 1 ? ` ×${item.quantity}` : ""}
+              </Text>
+            </View>
+          }
+          trailing={
+            <Pressable
+              onPress={() => openMenu(item)}
+              style={({ pressed }) => [styles.moreBtn, pressed && styles.moreBtnPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`More actions for ${name}`}
+            >
+              <MaterialCommunityIcons name="dots-vertical" size={22} color={theme.textSecondary} />
+            </Pressable>
+          }
+          onPress={() => router.push(`/garage-item/${item.id}`)}
+          onLongPress={() => openMenu(item)}
+          accessibilityLabel={`${name}, ${st.label}. Edit garage entry`}
+        />
+      );
+    },
+    [openMenu],
   );
+
+  const listEmpty = useMemo(() => {
+    if (garageQuery.isLoading) return <CarListSkeleton count={4} />;
+    if (garageQuery.isError && !hasItems) {
+      return (
+        <EmptyState
+          icon="cloud-off-outline"
+          tone="danger"
+          title="Couldn’t load your garage"
+          body={errorMessage(garageQuery.error)}
+        >
+          <PrimaryButton label="Try again" onPress={() => void garageQuery.refetch()} />
+        </EmptyState>
+      );
+    }
+    if (filter !== "all") {
+      const copy = EMPTY_BY_FILTER[filter];
+      return (
+        <EmptyState icon="garage-open-variant" title={copy.title} body={copy.body}>
+          <PrimaryButton label="Show everything" variant="ghost" onPress={() => setFilter("all")} />
+        </EmptyState>
+      );
+    }
+    return (
+      <EmptyState
+        icon="garage-open-variant"
+        title="Your garage is empty"
+        body="Find a casting, then save it as Owned, Want, or Duplicate to start tracking your collection."
+      >
+        <PrimaryButton label="Browse the catalog" onPress={() => router.navigate("/(tabs)")} />
+        <PrimaryButton label="Scan a barcode" variant="ghost" onPress={() => router.push("/scan")} />
+      </EmptyState>
+    );
+  }, [garageQuery, hasItems, filter]);
+
+  const menuName = menuFor?.car?.casting_name ?? "Car";
 
   return (
     <View style={styles.screen}>
       <OfflineBanner online={online} pendingGarageOps={pendingGarage} />
-      {garageQuery.isError && !garageQuery.data ? (
-        <View style={[styles.bannerErr, wideColumnStyle]}>
-          <IconCloudOff color={theme.danger} size={20} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bannerErrTxt}>Could not load garage</Text>
-            <Text style={[styles.bannerErrTxt, { opacity: 0.85, fontWeight: "600", marginTop: 2 }]}>
-              {garageQuery.error instanceof Error ? garageQuery.error.message : "Unknown error"}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => void garageQuery.refetch()}
-            style={styles.retryBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Retry loading garage"
-          >
-            <Text style={styles.retryBtnTxt}>Retry</Text>
-          </Pressable>
+      {garageQuery.isError && hasItems ? (
+        <View style={[styles.staleBanner, wideColumnStyle]} accessibilityRole="alert">
+          <MaterialCommunityIcons name="cloud-off-outline" size={18} color={theme.rumorText} />
+          <Text style={styles.staleBannerTxt}>Showing your last synced garage — couldn’t refresh.</Text>
         </View>
       ) : null}
       <FlatList
         {...themedScrollIndicatorProps}
-        data={garageQuery.data?.items ?? []}
+        data={items}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         ListHeaderComponent={listHeader}
-        refreshing={garageQuery.isFetching}
-        onRefresh={() => garageQuery.refetch()}
-        ListEmptyComponent={
-          garageQuery.isLoading ? (
-            <Text style={styles.muted}>Loading garage…</Text>
-          ) : (
-            <View style={[styles.empty, wideColumnStyle]}>
-              <IconPackage color={theme.textMuted} size={44} />
-              <Text style={styles.emptyTitle}>Garage is empty</Text>
-              <Text style={styles.muted}>Open a car reference and tap “Save to garage.”</Text>
-            </View>
-          )
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accentSecondary}
+            colors={[theme.accentSecondary]}
+            progressBackgroundColor={theme.bgElevated}
+          />
         }
+        ListEmptyComponent={listEmpty}
         contentContainerStyle={[
           styles.list,
-          { paddingBottom: Math.max(theme.space2xl, listBottomPad) },
+          { paddingBottom: tabBarHeight + LIST_BELOW_TAB_EXTRA },
+          wideColumnStyle,
         ]}
       />
+
+      <BottomSheet
+        visible={menuFor != null}
+        onClose={closeMenu}
+        title={confirmingRemove ? "Remove from garage?" : menuName}
+        subtitle={
+          confirmingRemove
+            ? `${menuName} and its notes and photos will be removed from your garage.`
+            : undefined
+        }
+        footer={
+          confirmingRemove ? (
+            <>
+              <PrimaryButton
+                label="Remove"
+                variant="danger"
+                onPress={() => {
+                  if (menuFor) del.mutate(menuFor.id);
+                  closeMenu();
+                }}
+              />
+              <PrimaryButton label="Keep it" variant="ghost" onPress={() => setConfirmingRemove(false)} />
+            </>
+          ) : undefined
+        }
+      >
+        {confirmingRemove || !menuFor ? null : (
+          <View style={styles.menu}>
+            <ListRow
+              icon="pencil-outline"
+              title="Edit entry"
+              subtitle="Status, condition, quantity, notes, photos"
+              onPress={() => {
+                closeMenu();
+                router.push(`/garage-item/${menuFor.id}`);
+              }}
+            />
+            <ListRow
+              divider
+              icon="book-open-variant"
+              title="View reference"
+              subtitle="Catalog details and sources"
+              onPress={() => {
+                closeMenu();
+                router.push(`/car/${menuFor.car_id}`);
+              }}
+            />
+            <ListRow
+              divider
+              icon="trash-can-outline"
+              title="Remove from garage"
+              tone="danger"
+              onPress={() => setConfirmingRemove(true)}
+            />
+          </View>
+        )}
+      </BottomSheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.bg },
-  list: { paddingHorizontal: theme.spaceLg },
-  header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spaceLg,
-    marginBottom: theme.spaceLg,
-    marginTop: theme.spaceSm,
-  },
-  headerText: { flex: 1, minWidth: 0 },
-  kicker: {
-    ...theme.typeKicker,
-    color: theme.accent,
-  },
-  title: {
-    ...theme.typeTitleLg,
-    fontSize: 24,
-    color: theme.text,
-    marginTop: 4,
-  },
-  sub: { marginTop: 8, fontSize: 15, lineHeight: 22, color: theme.textSecondary, fontWeight: "500" },
-  headerActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spaceSm,
-    marginTop: theme.spaceMd,
-    alignSelf: "flex-start",
-  },
-  insightsBtn: {
+  list: { flexGrow: 1, paddingHorizontal: theme.spaceLg, paddingTop: theme.spaceMd },
+  header: { gap: theme.spaceMd, marginBottom: theme.spaceLg },
+  shortcuts: { flexDirection: "row", gap: theme.spaceSm },
+  shortcut: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 10,
+    gap: theme.spaceSm,
+    minHeight: 48,
     paddingHorizontal: theme.spaceMd,
     borderRadius: theme.radiusMd,
     backgroundColor: theme.bgElevated,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
   },
-  insightsBtnPressed: { opacity: 0.85 },
-  insightsBtnTxt: { fontSize: 15, fontWeight: "800", color: theme.accent },
-  countBadge: {
-    minWidth: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    alignItems: "center",
-    justifyContent: "center",
-    ...theme.shadow.card,
-  },
-  countTxt: { fontSize: 18, fontWeight: "900", color: theme.text },
-  card: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    backgroundColor: theme.bgElevated,
-    borderRadius: theme.radiusMd,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    marginBottom: theme.spaceMd,
-    overflow: "hidden",
-    ...theme.shadow.card,
-  },
-  cardMain: { flex: 1, padding: theme.spaceLg },
-  cardTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.spaceSm },
-  cardTopLeft: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spaceMd,
-  },
-  cardThumb: {
-    width: 64,
-    height: 44,
-    borderRadius: theme.radiusSm,
-    backgroundColor: theme.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-  },
-  cardThumbPlaceholder: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardTitle: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: "800", color: theme.text },
+  shortcutPressed: { backgroundColor: theme.bgRaised },
+  shortcutTxt: { flex: 1, fontSize: 15, fontWeight: "700", color: theme.text },
   statusPill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: theme.radiusFull,
   },
-  statusTxt: { fontSize: 11, fontWeight: "800", letterSpacing: 0.4 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
-  cardMeta: { marginTop: theme.spaceSm, color: theme.textSecondary, fontSize: 14, fontWeight: "600" },
-  cardActions: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: theme.border,
-    backgroundColor: theme.bgSubtle,
+  statusTxt: { fontSize: 12, fontWeight: "800", letterSpacing: 0.3 },
+  moreBtn: {
     width: theme.touchTargetMin,
-    alignItems: "stretch",
-  },
-  actionBtn: {
-    flex: 1,
-    minHeight: theme.touchTargetMin - 4,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    width: "100%",
+    borderTopRightRadius: theme.radiusMd,
+    borderBottomRightRadius: theme.radiusMd,
   },
-  actionBtnDestructive: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: theme.border,
+  moreBtnPressed: { backgroundColor: theme.bgRaised },
+  menu: {
+    marginHorizontal: -theme.spaceLg,
   },
-  muted: { color: theme.textMuted, textAlign: "center", marginTop: theme.spaceMd, fontWeight: "500" },
-  empty: {
-    alignItems: "center",
-    marginTop: theme.space3xl,
-    gap: theme.spaceMd,
-    paddingHorizontal: theme.spaceLg,
-  },
-  emptyTitle: { fontSize: 18, fontWeight: "800", color: theme.text },
-  bannerErr: {
+  staleBanner: {
     flexDirection: "row",
-    gap: theme.spaceSm,
     alignItems: "center",
-    marginHorizontal: theme.spaceLg,
-    marginTop: theme.spaceSm,
-    padding: theme.spaceMd,
-    borderRadius: theme.radiusMd,
-    backgroundColor: theme.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.danger + "44",
+    gap: theme.spaceSm,
+    paddingVertical: theme.spaceSm,
+    paddingHorizontal: theme.spaceLg,
+    backgroundColor: theme.rumorBg,
   },
-  bannerErrTxt: { color: theme.danger, fontWeight: "700", fontSize: 14, lineHeight: 20 },
-  retryBtn: {
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 6,
-    borderRadius: theme.radiusSm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.danger,
-  },
-  retryBtnTxt: { color: theme.danger, fontWeight: "800", fontSize: 13 },
+  staleBannerTxt: { flex: 1, fontSize: 13, fontWeight: "600", color: theme.rumorText },
 });

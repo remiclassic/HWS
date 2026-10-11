@@ -26,6 +26,10 @@ const TAB_VISUALS: Record<string, TabVisual> = {
   garage: { label: "Garage", Icon: IconGarageTab },
 };
 
+const FAB_SIZE = 60;
+/** Bar stays phone-sized on tablets / web instead of stretching edge to edge */
+const BAR_MAX_WIDTH = 420;
+
 export const AppTabBar = memo(function AppTabBar({
   state,
   descriptors,
@@ -41,28 +45,17 @@ export const AppTabBar = memo(function AppTabBar({
     [onHeightChange],
   );
 
-  const refRoute = state.routes[0];
-  const opts = refRoute ? descriptors[refRoute.key]?.options : undefined;
-  const activeTint = (opts?.tabBarActiveTintColor as string) ?? theme.accent;
-  const inactiveTint = (opts?.tabBarInactiveTintColor as string) ?? theme.textMuted;
-
   const indexRoute = state.routes.find((r) => r.name === "index");
   const garageRoute = state.routes.find((r) => r.name === "garage");
 
-  const renderSideTab = (
-    route: (typeof state.routes)[number] | undefined,
-    edge: "leading" | "trailing",
-  ) => {
-    const edgeStyle = edge === "leading" ? styles.sideTabLeading : styles.sideTabTrailing;
-    const labelAlign = edge === "leading" ? ("left" as const) : ("right" as const);
-
-    if (!route) return <View style={[styles.sideTab, edgeStyle]} />;
+  const renderTab = (route: (typeof state.routes)[number] | undefined) => {
+    if (!route) return <View style={styles.tab} />;
 
     const { options } = descriptors[route.key];
     const routeIndex = state.routes.findIndex((r) => r.key === route.key);
     const isFocused = state.index === routeIndex;
     const visual = TAB_VISUALS[route.name] ?? { label: String(route.name), Icon: IconSpotterTab };
-    const color = isFocused ? activeTint : inactiveTint;
+    const color = isFocused ? theme.text : theme.textMuted;
 
     const onPress = () => {
       triggerHaptic();
@@ -84,10 +77,12 @@ export const AppTabBar = memo(function AppTabBar({
         accessibilityState={{ selected: isFocused }}
         accessibilityLabel={options.tabBarAccessibilityLabel ?? visual.label}
         onPress={onPress}
-        style={[styles.sideTab, edgeStyle]}
+        style={styles.tab}
       >
-        <Icon color={color} size={24} />
-        <Text style={[styles.label, { color, textAlign: labelAlign }]} numberOfLines={1}>
+        <View style={[styles.iconPill, isFocused && styles.iconPillActive]}>
+          <Icon color={isFocused ? theme.accentSecondary : color} size={24} />
+        </View>
+        <Text style={[styles.label, { color }]} numberOfLines={1}>
           {visual.label}
         </Text>
       </Pressable>
@@ -107,23 +102,21 @@ export const AppTabBar = memo(function AppTabBar({
       style={[styles.outer, { paddingBottom: bottomPad }]}
       pointerEvents="box-none"
     >
-      <View style={styles.barWrap} pointerEvents="box-none">
-        <View style={styles.bar}>
-          {renderSideTab(indexRoute, "leading")}
-          <View style={styles.centerSlot} pointerEvents="box-none">
-            <Text style={styles.scanLabel}>Scan</Text>
-          </View>
-          {renderSideTab(garageRoute, "trailing")}
+      <View style={styles.bar}>
+        {renderTab(indexRoute)}
+        <View style={styles.centerSlot}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Scan barcode"
+            accessibilityHint="Opens the camera to scan a product barcode"
+            onPress={onScanPress}
+            style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+          >
+            <IconBarcodeScan color="#FFFFFF" size={28} />
+          </Pressable>
+          <Text style={styles.scanLabel}>Scan</Text>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Scan barcode"
-          accessibilityHint="Opens the camera to scan a product barcode"
-          onPress={onScanPress}
-          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-        >
-          <IconBarcodeScan color="#FFFFFF" size={26} />
-        </Pressable>
+        {renderTab(garageRoute)}
       </View>
     </View>
   );
@@ -131,91 +124,75 @@ export const AppTabBar = memo(function AppTabBar({
 
 const styles = StyleSheet.create({
   outer: {
+    // Floats over the scene — screens pad their lists with `useBottomTabBarHeight()`
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "transparent",
-    paddingTop: theme.spaceSm,
+    // Headroom for the scan button, which rides above the bar
+    paddingTop: FAB_SIZE / 2,
+    paddingHorizontal: theme.spaceLg,
     zIndex: 20,
-    elevation: 12,
-  },
-  barWrap: {
-    marginHorizontal: theme.spaceSm,
-    position: "relative",
-    alignItems: "stretch",
   },
   bar: {
     width: "100%",
+    maxWidth: BAR_MAX_WIDTH,
+    alignSelf: "center",
     flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: theme.spaceMd,
-    minHeight: 56,
-    paddingHorizontal: theme.spaceMd,
+    alignItems: "stretch",
+    height: 64,
     backgroundColor: theme.bgElevated,
-    borderRadius: theme.radiusFull,
+    borderRadius: theme.radiusLg + 4,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    ...theme.shadow.card,
+    borderColor: theme.borderStrong,
+    ...theme.shadow.floating,
   },
-  sideTab: {
-    flexGrow: 0,
-    flexShrink: 0,
-    justifyContent: "flex-end",
-    paddingTop: theme.spaceSm,
-    paddingBottom: 10,
-    gap: 4,
-    minHeight: theme.touchTargetMin,
-    minWidth: theme.touchTargetMin,
-    paddingHorizontal: theme.spaceXs,
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
   },
-  sideTabLeading: {
-    alignItems: "flex-start",
+  iconPill: {
+    width: 56,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sideTabTrailing: {
-    alignItems: "flex-end",
-  },
+  iconPillActive: { backgroundColor: theme.accentSecondaryMuted },
   label: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   centerSlot: {
-    width: 64,
-    flexShrink: 0,
+    width: FAB_SIZE + theme.spaceLg,
     alignItems: "center",
     justifyContent: "flex-end",
-    paddingBottom: 10,
-    minHeight: theme.touchTargetMin,
+    paddingBottom: 9,
   },
   scanLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.4,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.1,
     color: theme.textSecondary,
-    textTransform: "uppercase",
   },
   fab: {
     position: "absolute",
-    left: "50%",
-    top: -20,
-    marginLeft: -28,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    top: -FAB_SIZE / 2,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     backgroundColor: theme.accent,
+    borderWidth: 4,
+    borderColor: theme.bg,
     alignItems: "center",
     justifyContent: "center",
-    ...Platform.select({
-      web: { boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.4)" },
-      default: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
-        elevation: 6,
-      },
-    }),
   },
   fabPressed: {
     backgroundColor: theme.accentPressed,
-    transform: [{ scale: 0.96 }],
+    transform: [{ scale: 0.95 }],
   },
 });

@@ -12,6 +12,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { IconBarcodeScan } from "../components/icons/AppIcons";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { recordGamificationScan } from "../lib/api";
@@ -25,6 +26,7 @@ export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const handled = useRef(false);
   const [, setTick] = useState(0);
+  const [torch, setTorch] = useState(false);
 
   const onBarcodeScanned = useCallback((result: { data: string }) => {
     if (handled.current) return;
@@ -117,10 +119,31 @@ export default function ScanScreen() {
         barcodeScannerSettings={{
           barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "qr"],
         }}
+        enableTorch={torch}
         onBarcodeScanned={onBarcodeScanned}
       />
       <View style={styles.overlay} pointerEvents="box-none">
         <View style={[styles.overlayTop, { paddingTop: insets.top + theme.spaceSm }]}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.closeFab,
+              torch && styles.torchOn,
+              pressed && styles.closeFabPressed,
+            ]}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setTorch((v) => !v);
+            }}
+            accessibilityLabel={torch ? "Turn flashlight off" : "Turn flashlight on"}
+            accessibilityRole="button"
+            accessibilityState={{ selected: torch }}
+          >
+            <MaterialCommunityIcons
+              name={torch ? "flashlight" : "flashlight-off"}
+              size={22}
+              color={torch ? theme.textOnYellow : theme.text}
+            />
+          </Pressable>
           <Pressable
             style={({ pressed }) => [styles.closeFab, pressed && styles.closeFabPressed]}
             onPress={() => {
@@ -130,16 +153,24 @@ export default function ScanScreen() {
             accessibilityLabel="Close scanner"
             accessibilityRole="button"
           >
-            <Text style={styles.closeGlyph}>✕</Text>
+            <MaterialCommunityIcons name="close" size={24} color={theme.text} />
           </Pressable>
         </View>
 
         <View style={styles.targetStage} pointerEvents="none">
-          <View style={styles.scanTarget} />
+          <View style={styles.scanTarget}>
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
+          </View>
         </View>
 
         <View style={[styles.overlayBottom, { paddingBottom: bottomPad }]}>
-          <Text style={styles.hint}>Align the UPC or QR inside the frame</Text>
+          <View style={styles.hintPill}>
+            <Text style={styles.hint}>Line up the barcode on the back of the card</Text>
+          </View>
+          <Text style={styles.hintSub}>No luck? Close this and type the number into search.</Text>
         </View>
       </View>
     </View>
@@ -155,10 +186,13 @@ const styles = StyleSheet.create({
   },
   overlayTop: {
     paddingHorizontal: theme.spaceLg,
-    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   overlayBottom: {
     paddingHorizontal: theme.spaceLg,
+    alignItems: "center",
+    gap: theme.spaceSm,
   },
   targetStage: {
     flex: 1,
@@ -170,10 +204,34 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 340,
     aspectRatio: 1.65,
-    borderRadius: theme.radiusLg,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.92)",
-    backgroundColor: "transparent",
+  },
+  corner: {
+    position: "absolute",
+    width: 36,
+    height: 36,
+    borderColor: "#fff",
+  },
+  cornerTL: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: theme.radiusLg },
+  cornerTR: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: theme.radiusLg },
+  cornerBL: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: theme.radiusLg,
+  },
+  cornerBR: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: theme.radiusLg,
+  },
+  hintPill: {
+    paddingVertical: theme.spaceSm,
+    paddingHorizontal: theme.spaceLg,
+    borderRadius: theme.radiusFull,
+    backgroundColor: "rgba(7,20,34,0.78)",
   },
   hint: {
     color: "#fff",
@@ -181,10 +239,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 21,
+  },
+  hintSub: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
     textShadowColor: "rgba(0,0,0,0.75)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
+  torchOn: { backgroundColor: theme.trackYellow, borderColor: theme.trackYellow },
   closeFab: {
     width: 48,
     height: 48,
@@ -198,12 +263,6 @@ const styles = StyleSheet.create({
   closeFabPressed: {
     backgroundColor: "rgba(7,20,34,0.88)",
     transform: [{ scale: 0.96 }],
-  },
-  closeGlyph: {
-    color: theme.text,
-    fontSize: 20,
-    fontWeight: "600",
-    marginTop: -1,
   },
   center: {
     flex: 1,

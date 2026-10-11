@@ -1,70 +1,44 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Platform,
+  Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
-  type DimensionValue,
   type ViewStyle,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import Animated, {
-  Easing,
-  FadeInDown,
-  LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import {
-  IconCarSearchLarge,
-  IconChevronDown,
-  IconChevronUp,
-  IconCloudOff,
-  IconFilterSliders,
-} from "../../components/icons/AppIcons";
+import { IconFilterSliders } from "../../components/icons/AppIcons";
 import { huntFilterIconFor, lineFilterIconFor } from "../../components/icons/FilterPillIcons";
 import type { CarListItemDto, LineType, TreasureHuntType, UserCarStatus } from "@hotwheels/shared";
+import { BottomSheet } from "../../components/ui/BottomSheet";
+import { CarRow } from "../../components/ui/CarRow";
+import { ConfidencePill } from "../../components/ui/ConfidenceBar";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { FilterChip } from "../../components/ui/FilterChip";
-import { HuntBadge } from "../../components/ui/HuntBadge";
-import { LineChip } from "../../components/ui/LineChip";
-import { ConfidenceBar } from "../../components/ui/ConfidenceBar";
-import { RemoteImage } from "../../components/ui/RemoteImage";
+import { PrimaryButton } from "../../components/ui/PrimaryButton";
+import { SearchField } from "../../components/ui/SearchField";
+import { CarListSkeleton } from "../../components/ui/Skeleton";
+import { TextField } from "../../components/ui/TextField";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
-import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
 import { fetchCars, fetchGarage } from "../../lib/api";
 import { takePendingBarcode } from "../../lib/pendingScanStorage";
-import { motion } from "../../lib/motion";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
 
 const PAGE_SIZE = 40;
 
-const GARAGE_BADGE_COLORS: Record<UserCarStatus, { text: string; bg: string; border: string }> = {
-  Owned: { text: theme.officialText, bg: theme.officialBg, border: theme.officialText + "55" },
-  Want: { text: theme.accent, bg: theme.accentMuted, border: theme.accent + "55" },
-  Duplicate: { text: theme.textSecondary, bg: theme.bgSubtle, border: theme.border },
-};
+type LineKey = LineType | "all";
+type HuntKey = TreasureHuntType | "all";
 
-const GarageStatusBadge = memo(function GarageStatusBadge({ status }: { status: UserCarStatus }) {
-  const c = GARAGE_BADGE_COLORS[status];
-  return (
-    <View style={[styles.garageBadge, { backgroundColor: c.bg, borderColor: c.border }]}>
-      <Text style={[styles.garageBadgeTxt, { color: c.text }]}>{status}</Text>
-    </View>
-  );
-});
-
-const LINE_FILTERS: { key: LineType | "all"; label: string }[] = [
+const LINE_FILTERS: { key: LineKey; label: string }[] = [
   { key: "all", label: "All lines" },
   { key: "Mainline", label: "Mainline" },
   { key: "Premium", label: "Premium" },
@@ -74,182 +48,58 @@ const LINE_FILTERS: { key: LineType | "all"; label: string }[] = [
   { key: "Other", label: "Other" },
 ];
 
-const HUNT_FILTERS: { key: TreasureHuntType | "all"; label: string }[] = [
-  { key: "all", label: "Any hunt" },
-  { key: "None", label: "Not TH" },
-  { key: "TH", label: "TH" },
-  { key: "STH", label: "STH" },
+const HUNT_FILTERS: { key: HuntKey; label: string }[] = [
+  { key: "all", label: "Any" },
+  { key: "TH", label: "Treasure Hunt" },
+  { key: "STH", label: "Super TH" },
+  { key: "None", label: "Not a hunt" },
 ];
 
+/** One-line explainer under each filter group — collectors new to the hobby need the vocabulary. */
+const LINE_HELP: Record<LineKey, string> = {
+  all: "Every line together — Mainline, Premium, RLC, Team Transport, Entertainment, and the rest.",
+  Mainline: "Core retail assortments: the standard mix most pegs and dump bins are stocked from.",
+  Premium: "Higher-detail segments like Car Culture — metal bases, Real Riders, premium card art.",
+  RLC: "Red Line Club: Mattel’s membership line with heavier metal and serialized, limited drops.",
+  TeamTransport: "A hauler or rig packaged with a matching vehicle, sold as one set.",
+  Entertainment: "Licensed pop-culture releases: films, games, and media tie-ins.",
+  Other: "Everything outside the main buckets — exclusives, multipacks, niche series.",
+};
+
+const HUNT_HELP: Record<HuntKey, string> = {
+  all: "Standard cars, Treasure Hunts, and Super Treasure Hunts together.",
+  TH: "Regular chase tier: special deco and a hidden flame logo on the car.",
+  STH: "Top chase tier: Spectraflame-style paint, Real Riders, and a gold flame on the card.",
+  None: "Hide chase variants so only standard releases appear.",
+};
+
+const THIS_YEAR = new Date().getFullYear();
+const QUICK_YEARS = [THIS_YEAR, THIS_YEAR - 1, THIS_YEAR - 2, THIS_YEAR - 3].map(String);
+
 const LIST_BELOW_TAB_EXTRA = 12;
+const CHIP_ICON = 18;
 
-const CarRow = memo(function CarRow({
-  item,
-  index,
-  garageStatus,
-}: {
-  item: CarListItemDto;
-  index: number;
-  garageStatus?: UserCarStatus;
-}) {
-  const onPress = useCallback(() => {
-    router.push(`/car/${item.id}`);
-  }, [item.id]);
-  const { animatedStyle, onPressIn, onPressOut } = usePressScale(true);
+const BLUE_TINT = { border: theme.accentSecondary, background: theme.accentSecondaryMuted };
+const YELLOW_TINT = { border: theme.trackYellow, background: theme.accentYellowMuted };
 
-  return (
-    <Animated.View
-      entering={FadeInDown.springify()
-        .damping(19)
-        .stiffness(280)
-        .delay(Math.min(index * motion.staggerItemMs, 240))}
-    >
-      <ReanimatedPressable
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        style={[styles.rowCard, animatedStyle]}
-        accessibilityRole="button"
-        accessibilityLabel={`Open reference: ${item.casting_name}`}
-      >
-        <View style={styles.rowTop}>
-          <RemoteImage
-            uri={item.primary_image_url}
-            style={[styles.rowThumb, !item.primary_image_url && styles.rowThumbPlaceholder]}
-            accessibilityLabel={item.primary_image_url ? `${item.casting_name} thumbnail` : undefined}
-          />
-          <View style={styles.rowTitleBlock}>
-            <Text style={styles.rowTitle} numberOfLines={2}>
-              {item.casting_name}
-            </Text>
-            <View style={styles.chipRow}>
-              <LineChip line={item.line_type} />
-              <HuntBadge type={item.treasure_hunt_type} />
-              {garageStatus != null && <GarageStatusBadge status={garageStatus} />}
-            </View>
-          </View>
-        </View>
-        <Text style={styles.rowMeta} numberOfLines={1}>
-          {item.year}
-          {item.series ? ` · ${item.series}` : ""}
-        </Text>
-        <ConfidenceBar score={item.confidence_score} label="Reference confidence" />
-      </ReanimatedPressable>
-    </Animated.View>
-  );
-});
-
-function ShimmerLine({ widthPct }: { widthPct: DimensionValue }) {
-  const o = useSharedValue(0.36);
-  useEffect(() => {
-    o.value = withRepeat(
-      withSequence(
-        withTiming(0.68, { duration: 640 }),
-        withTiming(0.36, { duration: 640 }),
-      ),
-      -1,
-      false,
-    );
-  }, []);
-  const anim = useAnimatedStyle(() => ({ opacity: o.value }), []);
-  return <Animated.View style={[styles.skeletonLine, { width: widthPct }, anim]} />;
+function huntTint(key: HuntKey) {
+  return key === "TH" || key === "STH" ? YELLOW_TINT : BLUE_TINT;
 }
-
-function ListLoadingSkeleton() {
-  return (
-    <View style={styles.skeletonWrap} accessibilityLabel="Loading catalog">
-      <ShimmerLine widthPct={"88%" as DimensionValue} />
-      <ShimmerLine widthPct={"72%" as DimensionValue} />
-      <ShimmerLine widthPct={"45%" as DimensionValue} />
-      <ShimmerLine widthPct={"88%" as DimensionValue} />
-      <ShimmerLine widthPct={"68%" as DimensionValue} />
-    </View>
-  );
-}
-
-const FILTER_LINE_HELP: Record<(typeof LINE_FILTERS)[number]["key"], { title: string; detail: string }> = {
-  all: {
-    title: "All lines",
-    detail: "No line filter — show castings from Mainline, Premium, RLC, Team Transport, Entertainment, and other series together.",
-  },
-  Mainline: {
-    title: "Mainline",
-    detail: "Core retail assortments: the standard mix most pegs and dump bins are stocked from.",
-  },
-  Premium: {
-    title: "Premium",
-    detail: "Higher-detail segments like Car Culture — metal bases, Real Riders, and premium presentation vs basic mainline.",
-  },
-  RLC: {
-    title: "Red Line Club (RLC)",
-    detail:
-      "Mattel’s membership-driven collector line: heavier metal, serialized drops, and packaging aimed at serious collectors.",
-  },
-  TeamTransport: {
-    title: "Team Transport",
-    detail: "Hauler or rig plus a matching vehicle in one set — ideal for display pairs.",
-  },
-  Entertainment: {
-    title: "Entertainment",
-    detail: "Licensed pop-culture releases: films, games, and media tie-ins beyond generic racing themes.",
-  },
-  Other: {
-    title: "Other lines",
-    detail: "Everything that isn’t in the main buckets — exclusives, multipacks, or niche series labels.",
-  },
-};
-
-const FILTER_HUNT_HELP: Record<(typeof HUNT_FILTERS)[number]["key"], { title: string; detail: string }> = {
-  all: {
-    title: "Any hunt status",
-    detail: "Include standard cars, Treasure Hunts, and Super Treasure Hunts — no hunt filter applied.",
-  },
-  None: {
-    title: "Not a Treasure Hunt",
-    detail: "Hide TH and STH chase variants so only non-chase listings appear.",
-  },
-  TH: {
-    title: "Treasure Hunt (TH)",
-    detail: "Regular chase tier: special deco and a hidden TH — not the Super variant.",
-  },
-  STH: {
-    title: "Super Treasure Hunt (STH)",
-    detail: "Top chase tier: premium finishes, Real Riders, and the gold circle-flame TH treatment.",
-  },
-};
-
-const PILL_ICON_SIZE = 22;
-
-const FilterSelectionHelp = memo(function FilterSelectionHelp({
-  title,
-  detail,
-}: {
-  title: string;
-  detail: string;
-}) {
-  return (
-    <View
-      style={styles.filterHelpBox}
-      accessibilityLiveRegion="polite"
-      accessibilityLabel={`${title}. ${detail}`}
-    >
-      <Text style={styles.filterHelpTitle}>{title}</Text>
-      <Text style={styles.filterHelpDetail}>{detail}</Text>
-    </View>
-  );
-});
 
 export default function SearchScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isWide, contentMaxWidth } = useResponsiveLayout();
-  const listBottomPad = tabBarHeight + LIST_BELOW_TAB_EXTRA;
 
   const [q, setQ] = useState("");
   const [year, setYear] = useState("");
-  const [line, setLine] = useState<(typeof LINE_FILTERS)[number]["key"]>("all");
-  const [hunt, setHunt] = useState<(typeof HUNT_FILTERS)[number]["key"]>("all");
+  const [line, setLine] = useState<LineKey>("all");
+  const [hunt, setHunt] = useState<HuntKey>("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const debouncedQ = useDebouncedValue(q, 280);
+  // Half-typed years ("20") would match nothing — wait for all four digits.
+  const yearValue = /^\d{4}$/.test(year.trim()) ? Number(year) : undefined;
 
   const queryBase = useMemo(() => {
     const trimmed = debouncedQ.trim();
@@ -257,12 +107,33 @@ export default function SearchScreen() {
     return {
       q: looksSku ? undefined : trimmed || undefined,
       sku: looksSku ? trimmed : undefined,
-      year: year.trim() ? Number(year) : undefined,
+      year: yearValue,
       line_type: line === "all" ? undefined : line,
       treasure_hunt_type: hunt === "all" ? undefined : hunt,
       limit: PAGE_SIZE,
     };
-  }, [debouncedQ, year, line, hunt]);
+  }, [debouncedQ, yearValue, line, hunt]);
+
+  const carsQuery = useInfiniteQuery({
+    queryKey: ["cars", queryBase] as const,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      fetchCars({
+        ...queryBase,
+        offset: pageParam,
+      }),
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((sum, p) => sum + p.items.length, 0);
+      return loaded < lastPage.total ? loaded : undefined;
+    },
+    // Keep the last results on screen while the next search loads — no skeleton flash per keystroke.
+    placeholderData: keepPreviousData,
+  });
+
+  const items = useMemo(
+    () => carsQuery.data?.pages.flatMap((p) => p.items) ?? [],
+    [carsQuery.data],
+  );
 
   const garageQuery = useQuery({
     queryKey: ["garage"] as const,
@@ -278,26 +149,8 @@ export default function SearchScreen() {
     return map;
   }, [garageQuery.data]);
 
-  const carsQuery = useInfiniteQuery({
-    queryKey: ["cars", queryBase] as const,
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      fetchCars({
-        ...queryBase,
-        offset: pageParam,
-      }),
-    getNextPageParam: (lastPage, allPages) => {
-      const loaded = allPages.reduce((sum, p) => sum + p.items.length, 0);
-      return loaded < lastPage.total ? loaded : undefined;
-    },
-  });
-
-  const items = useMemo(
-    () => carsQuery.data?.pages.flatMap((p) => p.items) ?? [],
-    [carsQuery.data],
-  );
-
   const totalCount = carsQuery.data?.pages[0]?.total ?? 0;
+  const searching = carsQuery.isPlaceholderData || q.trim() !== debouncedQ.trim();
 
   useFocusEffect(
     useCallback(() => {
@@ -312,84 +165,8 @@ export default function SearchScreen() {
     }, []),
   );
 
-  const renderItem = useCallback(
-    ({ item, index }: { item: CarListItemDto; index: number }) => (
-      <CarRow item={item} index={index} garageStatus={garageMap.get(item.id)} />
-    ),
-    [garageMap],
-  );
-
-  const listEmpty = useMemo(() => {
-    if (carsQuery.isPending) {
-      return <ListLoadingSkeleton />;
-    }
-    return (
-      <View style={styles.emptyWrap}>
-        <IconCarSearchLarge color={theme.textMuted} size={40} />
-        <Text style={styles.emptyTitle}>No matches</Text>
-        <Text style={styles.muted}>Try another query or clear filters.</Text>
-      </View>
-    );
-  }, [carsQuery.isPending]);
-
-  const listFooter = useMemo(() => {
-    if (carsQuery.isFetchingNextPage) {
-      return (
-        <Text style={styles.footerLoading} accessibilityLabel="Loading more results">
-          Loading more…
-        </Text>
-      );
-    }
-    if (items.length > 0 && totalCount > items.length) {
-      return (
-        <Text style={styles.footerMeta} accessibilityLabel={`Showing ${items.length} of ${totalCount}`}>
-          Showing {items.length} of {totalCount} — scroll for more
-        </Text>
-      );
-    }
-    if (items.length > 0 && totalCount > 0 && items.length === totalCount) {
-      return <Text style={styles.footerMeta}>End of results ({totalCount})</Text>;
-    }
-    return null;
-  }, [carsQuery.isFetchingNextPage, items.length, totalCount]);
-
-  const onEndReached = useCallback(() => {
-    if (carsQuery.isFetchingNextPage || !carsQuery.hasNextPage) return;
-    void carsQuery.fetchNextPage();
-  }, [carsQuery]);
-
-  const chromeWideStyle = useMemo((): ViewStyle | undefined => {
-    if (!isWide) return undefined;
-    return { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" };
-  }, [isWide, contentMaxWidth]);
-
-  const listWideStyle = useMemo((): ViewStyle | undefined => {
-    if (!isWide || contentMaxWidth == null) return undefined;
-    return { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" };
-  }, [isWide, contentMaxWidth]);
-
-  const showFilterScrollIndicator = Platform.OS === "android" || Platform.OS === "web";
-
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-
-  const filterSummaryLine = useMemo(() => {
-    const lineLabel =
-      line === "all" ? "All lines" : (LINE_FILTERS.find((f) => f.key === line)?.label ?? String(line));
-    const huntLabel =
-      hunt === "all" ? "Any hunt" : (HUNT_FILTERS.find((f) => f.key === hunt)?.label ?? String(hunt));
-    const y = year.trim();
-    return y ? `${lineLabel} · ${huntLabel} · ${y}` : `${lineLabel} · ${huntLabel}`;
-  }, [line, hunt, year]);
-
-  const toggleFiltersExpanded = useCallback(() => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setFiltersExpanded((v) => !v);
-  }, []);
-
-  const filtersAreDirty = useMemo(
-    () => year.trim() !== "" || line !== "all" || hunt !== "all",
-    [year, line, hunt],
-  );
+  const activeFilterCount = (line !== "all" ? 1 : 0) + (hunt !== "all" ? 1 : 0) + (yearValue ? 1 : 0);
+  const hasQuery = q.trim() !== "";
 
   const resetFilters = useCallback(() => {
     void Haptics.selectionAsync();
@@ -398,247 +175,310 @@ export default function SearchScreen() {
     setHunt("all");
   }, []);
 
-  const filterTogglePress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
-  const resetFilterPress = usePressScale(true, motion.scalePressSubtle, motion.springChip);
+  const clearAll = useCallback(() => {
+    resetFilters();
+    setQ("");
+  }, [resetFilters]);
 
-  const listHeader = useMemo(
-    () => (
-      <View style={[styles.chrome, chromeWideStyle]}>
-        <View style={styles.heroShell}>
-          <LinearGradient
-            colors={[...theme.heroWashGradientColors]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={styles.heroWash}
-            pointerEvents="none"
-          />
-          <Animated.View entering={FadeInDown.duration(420).delay(40)} style={styles.heroBlock}>
-            <Text style={styles.heroKicker}>Identify in the aisle</Text>
-            <Text style={styles.heroTitle}>Reference search</Text>
-            <Text style={styles.heroSub} numberOfLines={3} ellipsizeMode="tail">
-              Official-first data with clear sources — built for collectors, not resale noise.
-            </Text>
-          </Animated.View>
-        </View>
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void carsQuery.refetch().finally(() => setRefreshing(false));
+  }, [carsQuery]);
 
-        <TextInput
-          placeholder="Casting, series, or numeric SKU / UPC"
-          value={q}
-          onChangeText={setQ}
-          style={styles.input}
-          placeholderTextColor={theme.inputPlaceholder}
-          autoCorrect={false}
-          autoCapitalize="none"
-        />
+  const onEndReached = useCallback(() => {
+    if (carsQuery.isFetchingNextPage || !carsQuery.hasNextPage) return;
+    void carsQuery.fetchNextPage();
+  }, [carsQuery]);
 
-        <Animated.View
-          layout={LinearTransition.duration(240).easing(Easing.out(Easing.cubic))}
-          style={[styles.filterPanel, filtersExpanded && styles.filterPanelOpen]}
-        >
-          <View style={[styles.filterPanelHeader, filtersExpanded && styles.filterPanelHeaderOpen]}>
-            <ReanimatedPressable
-              onPress={toggleFiltersExpanded}
-              onPressIn={filterTogglePress.onPressIn}
-              onPressOut={filterTogglePress.onPressOut}
-              style={[styles.filterPanelHeaderMain, filterTogglePress.animatedStyle]}
-              accessibilityRole="button"
-              accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
-              accessibilityHint="Shows line, year, and treasure hunt options"
-              accessibilityState={{ expanded: filtersExpanded }}
-            >
-              <IconFilterSliders color={theme.accentSecondary} size={22} />
-              <View style={styles.filterSummaryTextBlock}>
-                <Text style={styles.filterSummaryTitle}>Filters</Text>
-                <Text style={styles.filterSummaryMeta} numberOfLines={1}>
-                  {filterSummaryLine}
-                </Text>
-              </View>
-            </ReanimatedPressable>
-            <View style={styles.filterHeaderActions}>
-              {filtersExpanded ? (
-                filtersAreDirty ? (
-                  <ReanimatedPressable
-                    onPress={resetFilters}
-                    onPressIn={resetFilterPress.onPressIn}
-                    onPressOut={resetFilterPress.onPressOut}
-                    style={[styles.filterResetBtn, resetFilterPress.animatedStyle]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Reset filters"
-                    accessibilityHint="Clears year, line, and treasure hunt filters"
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.filterResetLabel}>Reset</Text>
-                  </ReanimatedPressable>
-                ) : (
-                  <View
-                    style={styles.filterResetBtn}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                  >
-                    <Text style={[styles.filterResetLabel, styles.filterResetLabelDisabled]}>Reset</Text>
-                  </View>
-                )
-              ) : (
-                <View style={styles.filterResetSpacer} />
-              )}
-              <ReanimatedPressable
-                onPress={toggleFiltersExpanded}
-                onPressIn={filterTogglePress.onPressIn}
-                onPressOut={filterTogglePress.onPressOut}
-                style={[styles.filterChevronBtn, filterTogglePress.animatedStyle]}
-                accessibilityRole="button"
-                accessibilityLabel={filtersExpanded ? "Collapse filters" : "Expand filters"}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                {filtersExpanded ? (
-                  <IconChevronUp color={theme.textSecondary} size={22} />
-                ) : (
-                  <IconChevronDown color={theme.textSecondary} size={22} />
-                )}
-              </ReanimatedPressable>
-            </View>
-          </View>
-
-          {filtersExpanded ? (
-            <View style={styles.filterPanelBody}>
-              <Text style={styles.filterPanelHint}>
-                Narrow the catalog by year, product line, and chase tier.
-              </Text>
-              <TextInput
-                placeholder="Year (optional)"
-                value={year}
-                onChangeText={setYear}
-                keyboardType="number-pad"
-                style={styles.inputYear}
-                placeholderTextColor={theme.inputPlaceholder}
-              />
-
-              <Text style={styles.filterLabel}>Line</Text>
-              <Text style={styles.filterHint}>Swipe for more</Text>
-              <ScrollView
-                {...themedScrollIndicatorProps}
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={showFilterScrollIndicator}
-                style={styles.filterScroll}
-                contentContainerStyle={styles.filterScrollContent}
-                keyboardShouldPersistTaps="handled"
-              >
-                {LINE_FILTERS.map((f) => {
-                  const selected = line === f.key;
-                  const fg = selected ? theme.accentSecondary : theme.textSecondary;
-                  return (
-                    <FilterChip
-                      key={f.key}
-                      icon={lineFilterIconFor(f.key, fg, PILL_ICON_SIZE)}
-                      selected={selected}
-                      onPress={() => setLine(f.key)}
-                      a11yLabel={`Line filter: ${f.label}`}
-                      selectedTint={{
-                        border: theme.accentSecondary,
-                        background: theme.accentSecondaryMuted,
-                      }}
-                    />
-                  );
-                })}
-              </ScrollView>
-              <FilterSelectionHelp title={FILTER_LINE_HELP[line].title} detail={FILTER_LINE_HELP[line].detail} />
-
-              <Text style={styles.filterLabel}>Treasure Hunt</Text>
-              <Text style={styles.filterHint}>Swipe for more</Text>
-              <ScrollView
-                {...themedScrollIndicatorProps}
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={showFilterScrollIndicator}
-                style={styles.filterScrollLast}
-                contentContainerStyle={styles.filterScrollContent}
-                keyboardShouldPersistTaps="handled"
-              >
-                {HUNT_FILTERS.map((f) => {
-                  const selected = hunt === f.key;
-                  const isChase = f.key === "TH" || f.key === "STH";
-                  const fg = selected
-                    ? isChase
-                      ? theme.trackYellow
-                      : theme.accentSecondary
-                    : theme.textSecondary;
-                  const huntSelectedTint =
-                    isChase
-                      ? { border: theme.trackYellow, background: theme.accentYellowMuted }
-                      : { border: theme.accentSecondary, background: theme.accentSecondaryMuted };
-                  return (
-                    <FilterChip
-                      key={f.key}
-                      icon={huntFilterIconFor(f.key, fg, PILL_ICON_SIZE)}
-                      selected={selected}
-                      onPress={() => setHunt(f.key)}
-                      a11yLabel={`Treasure hunt filter: ${f.label}`}
-                      selectedTint={huntSelectedTint}
-                    />
-                  );
-                })}
-              </ScrollView>
-              <FilterSelectionHelp title={FILTER_HUNT_HELP[hunt].title} detail={FILTER_HUNT_HELP[hunt].detail} />
-            </View>
-          ) : null}
-        </Animated.View>
-
-        {carsQuery.isError ? (
-          <View style={styles.bannerErr}>
-            <IconCloudOff color={theme.danger} size={20} />
-            <Text style={styles.bannerErrTxt}>
-              Could not load catalog. Check your network connection and try again.
-            </Text>
-          </View>
-        ) : null}
-      </View>
+  const renderItem = useCallback(
+    ({ item, index }: { item: CarListItemDto; index: number }) => (
+      <CarRow
+        index={index}
+        garageStatus={garageMap.get(item.id)}
+        title={item.casting_name}
+        meta={item.series ? `${item.year} · ${item.series}` : String(item.year)}
+        imageUri={item.primary_image_url}
+        line={item.line_type}
+        hunt={item.treasure_hunt_type}
+        badge={<ConfidencePill score={item.confidence_score} />}
+        onPress={() => router.push(`/car/${item.id}`)}
+        accessibilityLabel={`${item.casting_name}, ${item.year}${
+          garageMap.has(item.id) ? `, in your garage as ${garageMap.get(item.id)}` : ""
+        }. Open reference`}
+      />
     ),
-    [
-      chromeWideStyle,
-      filtersExpanded,
-      q,
-      year,
-      line,
-      hunt,
-      filterSummaryLine,
-      filtersAreDirty,
-      toggleFiltersExpanded,
-      resetFilters,
-      filterTogglePress,
-      resetFilterPress,
-      showFilterScrollIndicator,
-      carsQuery.isError,
-    ],
+    [garageMap],
   );
+
+  const wideStyle = useMemo((): ViewStyle | undefined => {
+    if (!isWide) return undefined;
+    return { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" };
+  }, [isWide, contentMaxWidth]);
+
+  const listHeader = useMemo(() => {
+    if (carsQuery.isPending || carsQuery.isError || items.length === 0) return null;
+    const noun = totalCount === 1 ? "casting" : "castings";
+    return (
+      <View style={styles.resultBar}>
+        <Text style={styles.resultCount} accessibilityLiveRegion="polite">
+          {totalCount.toLocaleString()} {noun}
+        </Text>
+        {searching ? <ActivityIndicator size="small" color={theme.textMuted} /> : null}
+      </View>
+    );
+  }, [carsQuery.isPending, carsQuery.isError, items.length, totalCount, searching]);
+
+  const listEmpty = useMemo(() => {
+    if (carsQuery.isPending) return <CarListSkeleton />;
+    if (carsQuery.isError) {
+      return (
+        <EmptyState
+          icon="cloud-off-outline"
+          tone="danger"
+          title="Can’t reach the catalog"
+          body={
+            __DEV__
+              ? "Check your connection. In development, make sure the API is running (npm run dev -w @hotwheels/api)."
+              : "Check your connection and try again."
+          }
+        >
+          <PrimaryButton label="Try again" onPress={() => void carsQuery.refetch()} />
+        </EmptyState>
+      );
+    }
+    return (
+      <EmptyState
+        icon="car-search-outline"
+        title="No castings found"
+        body={
+          activeFilterCount > 0
+            ? "Nothing matches this search with the current filters."
+            : "Try a casting name, a series, or the numeric code from the card."
+        }
+      >
+        {activeFilterCount > 0 ? (
+          <PrimaryButton label="Clear filters" onPress={resetFilters} />
+        ) : hasQuery ? (
+          <PrimaryButton label="Clear search" variant="ghost" onPress={clearAll} />
+        ) : null}
+      </EmptyState>
+    );
+  }, [carsQuery, activeFilterCount, hasQuery, resetFilters, clearAll]);
+
+  const listFooter = useMemo(() => {
+    if (carsQuery.isFetchingNextPage) {
+      return (
+        <View style={styles.footer} accessibilityLabel="Loading more results">
+          <ActivityIndicator color={theme.textMuted} />
+        </View>
+      );
+    }
+    if (items.length >= PAGE_SIZE && items.length === totalCount) {
+      return <Text style={styles.footerMeta}>That’s all {totalCount.toLocaleString()}</Text>;
+    }
+    return null;
+  }, [carsQuery.isFetchingNextPage, items.length, totalCount]);
+
+  const resultsLabel = carsQuery.isError
+    ? "Done"
+    : searching || carsQuery.isPending
+      ? "Searching…"
+      : `Show ${totalCount.toLocaleString()} result${totalCount === 1 ? "" : "s"}`;
 
   return (
     <View style={styles.screen}>
+      <View style={[styles.chrome, wideStyle]}>
+        <View style={styles.searchRow}>
+          <SearchField
+            value={q}
+            onChangeText={setQ}
+            placeholder="Casting, series, or barcode"
+            accessibilityLabel="Search the catalog by casting, series, or barcode number"
+          />
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickRow}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setFiltersOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.filterBtn,
+              activeFilterCount > 0 && styles.filterBtnActive,
+              pressed && styles.filterBtnPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={
+              activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : "Filters"
+            }
+            accessibilityHint="Opens line, treasure hunt, and year filters"
+          >
+            <IconFilterSliders
+              color={activeFilterCount > 0 ? theme.accentSecondary : theme.textSecondary}
+              size={18}
+            />
+            <Text style={[styles.filterBtnTxt, activeFilterCount > 0 && styles.filterBtnTxtActive]}>
+              Filters
+            </Text>
+            {activeFilterCount > 0 ? (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeTxt}>{activeFilterCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+
+          {/* Hunts first: the question collectors ask most in the aisle */}
+          {(["TH", "STH"] as const).map((key) => {
+            const selected = hunt === key;
+            return (
+              <FilterChip
+                key={key}
+                icon={huntFilterIconFor(key, selected ? theme.trackYellow : theme.textSecondary, CHIP_ICON)}
+                label={key}
+                selected={selected}
+                onPress={() => setHunt(selected ? "all" : key)}
+                a11yLabel={key === "TH" ? "Treasure Hunts only" : "Super Treasure Hunts only"}
+                selectedTint={YELLOW_TINT}
+              />
+            );
+          })}
+          {LINE_FILTERS.filter((f) => f.key !== "all").map((f) => {
+            const selected = line === f.key;
+            return (
+              <FilterChip
+                key={f.key}
+                icon={lineFilterIconFor(f.key, selected ? theme.accentSecondary : theme.textSecondary, CHIP_ICON)}
+                label={f.label}
+                selected={selected}
+                onPress={() => setLine(selected ? "all" : f.key)}
+                a11yLabel={`Line: ${f.label}`}
+                selectedTint={BLUE_TINT}
+              />
+            );
+          })}
+        </ScrollView>
+      </View>
+
       <FlatList
         {...themedScrollIndicatorProps}
-        style={styles.listFlex}
+        style={[styles.listFlex, searching && items.length > 0 && styles.listStale]}
         data={items}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         removeClippedSubviews={Platform.OS === "android"}
-        nestedScrollEnabled
-        refreshing={carsQuery.isFetching && !carsQuery.isFetchingNextPage}
-        onRefresh={() => void carsQuery.refetch()}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accentSecondary}
+            colors={[theme.accentSecondary]}
+            progressBackgroundColor={theme.bgElevated}
+          />
+        }
         onEndReached={onEndReached}
         onEndReachedThreshold={0.35}
         ListHeaderComponent={listHeader}
         contentContainerStyle={[
           styles.listContent,
-          {
-            flexGrow: 1,
-            paddingBottom: Math.max(theme.space3xl, listBottomPad),
-          },
-          listWideStyle,
+          { paddingBottom: tabBarHeight + LIST_BELOW_TAB_EXTRA },
+          wideStyle,
         ]}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}
       />
+
+      <BottomSheet
+        visible={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title="Filters"
+        footer={
+          <View style={styles.sheetActions}>
+            <View style={styles.sheetReset}>
+              <PrimaryButton
+                label="Reset"
+                variant="ghost"
+                onPress={resetFilters}
+                disabled={activeFilterCount === 0 && year === ""}
+              />
+            </View>
+            <View style={styles.sheetApply}>
+              <PrimaryButton label={resultsLabel} onPress={() => setFiltersOpen(false)} />
+            </View>
+          </View>
+        }
+      >
+        <Text style={styles.groupLabel}>Line</Text>
+        <View style={styles.chipWrap}>
+          {LINE_FILTERS.map((f) => {
+            const selected = line === f.key;
+            return (
+              <FilterChip
+                key={f.key}
+                icon={lineFilterIconFor(f.key, selected ? theme.accentSecondary : theme.textSecondary, CHIP_ICON)}
+                label={f.label}
+                selected={selected}
+                onPress={() => setLine(f.key)}
+                a11yLabel={`Line: ${f.label}`}
+                selectedTint={BLUE_TINT}
+              />
+            );
+          })}
+        </View>
+        <Text style={styles.groupHelp}>{LINE_HELP[line]}</Text>
+
+        <Text style={styles.groupLabel}>Treasure Hunt</Text>
+        <View style={styles.chipWrap}>
+          {HUNT_FILTERS.map((f) => {
+            const selected = hunt === f.key;
+            const tint = huntTint(f.key);
+            return (
+              <FilterChip
+                key={f.key}
+                icon={huntFilterIconFor(f.key, selected ? tint.border : theme.textSecondary, CHIP_ICON)}
+                label={f.label}
+                selected={selected}
+                onPress={() => setHunt(f.key)}
+                a11yLabel={`Treasure hunt: ${f.label}`}
+                selectedTint={tint}
+              />
+            );
+          })}
+        </View>
+        <Text style={styles.groupHelp}>{HUNT_HELP[hunt]}</Text>
+
+        <Text style={styles.groupLabel}>Year</Text>
+        <View style={styles.chipWrap}>
+          {QUICK_YEARS.map((y) => {
+            const selected = year === y;
+            return (
+              <FilterChip
+                key={y}
+                label={y}
+                selected={selected}
+                onPress={() => setYear(selected ? "" : y)}
+                a11yLabel={`Year ${y}`}
+                selectedTint={{ ...BLUE_TINT, text: theme.accentSecondary }}
+              />
+            );
+          })}
+        </View>
+        <TextField
+          label="Other year"
+          value={year}
+          onChangeText={(v) => setYear(v.replace(/\D/g, "").slice(0, 4))}
+          placeholder="e.g. 1995"
+          keyboardType="number-pad"
+          maxLength={4}
+        />
+      </BottomSheet>
     </View>
   );
 }
@@ -646,286 +486,73 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.bg },
   chrome: {
-    paddingBottom: theme.spaceMd,
+    paddingTop: theme.spaceSm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
     backgroundColor: theme.bg,
   },
-  listFlex: { flex: 1, minHeight: 0 },
-  listContent: { paddingHorizontal: theme.spaceLg, paddingTop: theme.spaceMd },
-  heroShell: {
-    position: "relative",
-    borderRadius: theme.radiusLg,
-    overflow: "hidden",
-    marginBottom: theme.spaceLg,
-  },
-  heroWash: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: theme.radiusLg,
-  },
-  heroBlock: {
-    paddingVertical: theme.spaceMd,
-    paddingHorizontal: theme.spaceMd,
-  },
-  filterPanel: {
-    marginBottom: theme.spaceSm,
-    borderRadius: theme.radiusMd,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.borderStrong,
-    overflow: "hidden",
-  },
-  filterPanelOpen: {
-    borderColor: theme.accentSecondary,
-    backgroundColor: theme.bgRaised,
-    shadowColor: theme.accentSecondary,
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  filterPanelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spaceSm,
-    paddingVertical: 10,
-    paddingHorizontal: theme.spaceMd,
-  },
-  filterPanelHeaderOpen: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.borderSticker,
-  },
-  filterPanelHeaderMain: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spaceMd,
-    minWidth: 0,
-  },
-  filterHeaderActions: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  filterResetSpacer: {
-    minWidth: 68,
-    minHeight: theme.touchTargetMin,
-  },
-  filterChevronBtn: {
-    justifyContent: "center",
-    alignItems: "center",
-    minWidth: theme.touchTargetMin,
-    minHeight: theme.touchTargetMin,
-    marginRight: -theme.spaceXs,
-  },
-  filterResetBtn: {
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: theme.spaceSm,
-    paddingHorizontal: theme.spaceSm,
-    minWidth: 68,
-    minHeight: theme.touchTargetMin,
-  },
-  filterResetLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: theme.accentSecondary,
-    letterSpacing: 0.2,
-  },
-  filterResetLabelDisabled: {
-    color: theme.textMuted,
-    fontWeight: "700",
-  },
-  filterPanelBody: {
-    paddingTop: theme.spaceMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingBottom: theme.spaceMd,
-  },
-  filterPanelHint: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: theme.textSecondary,
-    marginBottom: theme.spaceMd,
-  },
-  filterSummaryTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  filterSummaryTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.9,
-    textTransform: "uppercase",
-    color: theme.textSecondary,
-  },
-  filterSummaryMeta: {
-    marginTop: 3,
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.textSecondary,
-  },
-  heroKicker: {
-    ...theme.typeKicker,
-    color: theme.trackYellow,
-  },
-  heroTitle: {
-    ...theme.typeTitleLg,
-    fontSize: 26,
-    marginTop: 4,
-    color: theme.text,
-    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
-  },
-  heroSub: {
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 22,
-    color: theme.textSecondary,
-    fontWeight: "500",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.borderStrong,
-    borderRadius: theme.radiusMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 12,
-    marginBottom: theme.spaceSm,
-    fontSize: 16,
-    backgroundColor: theme.bgElevated,
-    color: theme.text,
-  },
-  inputYear: {
-    borderWidth: 1,
-    borderColor: theme.borderStrong,
-    borderRadius: theme.radiusMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 11,
-    marginBottom: theme.spaceSm,
-    fontSize: 16,
-    backgroundColor: theme.bgElevated,
-    color: theme.text,
-  },
-  filterLabel: {
-    ...theme.typeKicker,
-    color: theme.textMuted,
-    marginBottom: theme.spaceXs,
-  },
-  filterHint: {
-    fontSize: 11,
-    color: theme.textMuted,
-    marginBottom: theme.spaceXs,
-    fontWeight: "500",
-  },
-  filterScroll: { marginBottom: theme.spaceXs, flexGrow: 0 },
-  filterScrollLast: { marginBottom: theme.spaceXs, flexGrow: 0 },
-  filterHelpBox: {
-    paddingVertical: theme.spaceMd,
+  searchRow: { paddingHorizontal: theme.spaceLg },
+  quickRow: {
     paddingHorizontal: theme.spaceLg,
-    marginBottom: theme.spaceMd,
-    borderRadius: theme.radiusMd,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.borderStrong,
-    ...theme.shadow.card,
+    paddingTop: theme.spaceMd,
+    paddingBottom: theme.spaceXs,
+    alignItems: "flex-start",
   },
-  filterHelpTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: theme.text,
-    letterSpacing: -0.2,
-  },
-  filterHelpDetail: {
-    marginTop: 6,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "500",
-    color: theme.textSecondary,
-  },
-  filterScrollContent: {
-    paddingRight: theme.spaceLg,
-    paddingVertical: 2,
-    alignItems: "center",
-  },
-  bannerErr: {
+  filterBtn: {
     flexDirection: "row",
-    gap: theme.spaceSm,
     alignItems: "center",
-    backgroundColor: theme.dangerSurface,
-    borderRadius: theme.radiusMd,
-    padding: theme.spaceMd,
-    marginTop: theme.spaceSm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.dangerBorder,
-  },
-  bannerErrTxt: { flex: 1, color: theme.danger, fontSize: 14, lineHeight: 20, fontWeight: "600" },
-  rowCard: {
+    gap: 6,
+    minHeight: theme.touchTargetMin,
+    paddingHorizontal: 14,
+    marginRight: theme.spaceSm,
+    borderRadius: theme.radiusFull,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
     backgroundColor: theme.bgElevated,
-    borderRadius: theme.radiusMd,
-    padding: theme.spaceLg,
-    marginBottom: theme.spaceMd,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    ...theme.shadow.card,
   },
-  rowTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.spaceMd },
-  rowThumb: {
-    width: 76,
-    height: 52,
-    borderRadius: theme.radiusSm,
-    backgroundColor: theme.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-  },
-  rowThumbPlaceholder: {
+  filterBtnActive: { borderColor: theme.accentSecondary, backgroundColor: theme.accentSecondaryMuted },
+  filterBtnPressed: { opacity: 0.8 },
+  filterBtnTxt: { fontSize: 14, fontWeight: "700", color: theme.textSecondary },
+  filterBtnTxtActive: { color: theme.accentSecondary },
+  filterBadge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: theme.accentSecondary,
   },
-  rowTitleBlock: { flex: 1, minWidth: 0 },
-  rowTitle: { fontSize: 18, fontWeight: "800", color: theme.text, letterSpacing: -0.2 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
-  rowMeta: { marginTop: theme.spaceSm, color: theme.textSecondary, fontSize: 14, fontWeight: "500" },
-  muted: {
-    color: theme.textMuted,
-    textAlign: "center",
-    marginTop: theme.spaceSm,
-    fontSize: 15,
-    fontWeight: "500",
+  filterBadgeTxt: { fontSize: 12, fontWeight: "800", color: theme.bg },
+  listFlex: { flex: 1, minHeight: 0 },
+  listStale: { opacity: 0.55 },
+  listContent: { flexGrow: 1, paddingHorizontal: theme.spaceLg, paddingTop: theme.spaceMd },
+  resultBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 20,
+    marginBottom: theme.spaceMd,
   },
-  emptyWrap: { alignItems: "center", marginTop: theme.space2xl, gap: theme.spaceSm },
-  emptyTitle: { fontSize: 18, fontWeight: "800", color: theme.text },
-  skeletonWrap: {
-    marginTop: theme.spaceXl,
-    gap: theme.spaceMd,
-    paddingHorizontal: theme.spaceSm,
-    minHeight: 280,
-  },
-  skeletonLine: {
-    height: 14,
-    borderRadius: theme.radiusSm,
-    backgroundColor: theme.bgSubtle,
-  },
-  footerLoading: {
-    textAlign: "center",
-    color: theme.textMuted,
-    paddingVertical: theme.spaceLg,
-    fontWeight: "600",
-  },
+  resultCount: { fontSize: 13, fontWeight: "700", color: theme.textMuted },
+  footer: { paddingVertical: theme.spaceLg, alignItems: "center" },
   footerMeta: {
     textAlign: "center",
     color: theme.textMuted,
     fontSize: 13,
-    paddingVertical: theme.spaceMd,
+    paddingVertical: theme.spaceLg,
     fontWeight: "500",
   },
-  garageBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: theme.radiusFull,
-    borderWidth: 1,
+  groupLabel: { ...theme.typeSection, fontSize: 15, color: theme.text, marginBottom: theme.spaceMd },
+  groupHelp: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: theme.textMuted,
+    marginBottom: theme.spaceXl,
   },
-  garageBadgeTxt: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap" },
+  sheetActions: { flexDirection: "row", gap: theme.spaceSm },
+  sheetReset: { flex: 1 },
+  sheetApply: { flex: 2 },
 });

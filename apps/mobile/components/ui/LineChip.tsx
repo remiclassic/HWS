@@ -25,7 +25,14 @@ const lineTip: Partial<Record<LineType, { title: string; detail: string }>> = {
   },
 };
 
-export const LineChip = memo(function LineChip({ line }: { line: LineType }) {
+export const LineChip = memo(function LineChip({
+  line,
+  tooltip = true,
+}: {
+  line: LineType;
+  /** Off inside pressable rows — the long-press target would swallow the row's tap */
+  tooltip?: boolean;
+}) {
   const isRlc = line === "RLC";
   const name = lineLabel[line];
   const tip = lineTip[line];
@@ -37,7 +44,7 @@ export const LineChip = memo(function LineChip({ line }: { line: LineType }) {
       <Text style={[styles.txt, isRlc && styles.rlcTxt]}>{name}</Text>
     </View>
   );
-  if (!tip) return chip;
+  if (!tip || !tooltip) return chip;
   return (
     <AnimatedTooltip title={tip.title} detail={tip.detail}>
       {chip}

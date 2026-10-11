@@ -12,6 +12,7 @@ import { useSession } from "../lib/auth";
 import { asyncStoragePersister, queryClient } from "../lib/queryClient";
 import { theme } from "../lib/theme";
 import { WebScrollbarStyles } from "../lib/WebScrollbarStyles";
+import { ToastProvider } from "../components/ui/Toast";
 import { initSentry } from "../lib/sentry";
 import { useGarageQueueProcessor } from "../hooks/useGarageQueueProcessor";
 
@@ -65,10 +66,11 @@ function MainStack() {
       <Stack
         screenOptions={{
           headerStyle: {
-            backgroundColor: theme.bgElevated,
+            backgroundColor: theme.bg,
           },
           headerShadowVisible: false,
-          headerTintColor: theme.accent,
+          headerTintColor: theme.text,
+          headerBackButtonDisplayMode: "minimal",
           headerTitleStyle: {
             fontWeight: "800",
             fontSize: 17,
@@ -79,19 +81,22 @@ function MainStack() {
       >
         <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="car/[id]" options={{ title: "Reference" }} />
+        <Stack.Screen name="car/[id]" options={{ title: "" }} />
         <Stack.Screen name="th/[id]" options={{ title: "Treasure Hunt" }} />
-        <Stack.Screen name="scan" options={{ title: "Scan barcode" }} />
-        <Stack.Screen name="garage-item/[id]/index" options={{ title: "Edit garage item" }} />
+        <Stack.Screen
+          name="scan"
+          options={{ title: "Scan barcode", presentation: "fullScreenModal", headerShown: false }}
+        />
+        <Stack.Screen name="garage-item/[id]/index" options={{ title: "Garage entry" }} />
         <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
         <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
         <Stack.Screen name="collector-progress" options={{ title: "Collector progress" }} />
         <Stack.Screen name="leaderboard" options={{ title: "Leaderboard" }} />
         <Stack.Screen name="collector/[slug]" options={{ title: "Collector" }} />
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
-        <Stack.Screen name="login" options={{ title: "Sign in" }} />
-        <Stack.Screen name="signup" options={{ title: "Create account" }} />
-        <Stack.Screen name="forgot-password" options={{ title: "Reset password" }} />
+        <Stack.Screen name="login" options={{ title: "" }} />
+        <Stack.Screen name="signup" options={{ title: "" }} />
+        <Stack.Screen name="forgot-password" options={{ title: "" }} />
         <Stack.Screen name="link-email" options={{ title: "Link email" }} />
         <Stack.Screen name="legal/privacy" options={{ title: "Privacy" }} />
         <Stack.Screen name="legal/terms" options={{ title: "Terms" }} />
@@ -152,7 +157,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
         <OnboardingProvider>
-          <RootLayoutBody />
+          <ToastProvider>
+            <RootLayoutBody />
+          </ToastProvider>
         </OnboardingProvider>
       </PersistQueryClientProvider>
     </SafeAreaProvider>

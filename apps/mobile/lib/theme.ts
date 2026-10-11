@@ -167,6 +167,11 @@ export const theme = {
   dangerBorder: "rgba(248, 113, 113, 0.35)",
   dangerSurface: "rgba(248, 113, 113, 0.12)",
 
+  /** Positive feedback (toasts, strong confidence) — brighter than `trackGreen` for dark surfaces */
+  success: "#34D399",
+  /** Scrim behind sheets and tooltips */
+  overlay: "rgba(3, 10, 18, 0.62)",
+
   /** Hero wash — top of strip fades into app bg (`theme.bg`) */
   heroWashGradientColors: ["rgba(43, 180, 255, 0.2)", "rgba(7, 20, 34, 0)"] as const,
 
@@ -209,6 +214,12 @@ export const theme = {
     fontWeight: "900" as TextStyle["fontWeight"],
     letterSpacing: -0.3,
   },
+  /** Section headings inside a screen */
+  typeSection: {
+    fontSize: 17,
+    fontWeight: "800" as TextStyle["fontWeight"],
+    letterSpacing: -0.2,
+  },
   /** Body copy: keep ≥16px on phone for readability without zoom */
   typeBody: {
     fontSize: 16,
@@ -234,6 +245,17 @@ export const theme = {
         shadowOpacity: 0.35,
         shadowRadius: 16,
         elevation: 4,
+      },
+    }),
+    /** Sheets, toasts, tab bar — sits above cards */
+    floating: Platform.select({
+      web: { boxShadow: "0px 10px 24px rgba(0, 0, 0, 0.45)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.45,
+        shadowRadius: 24,
+        elevation: 12,
       },
     }),
   },

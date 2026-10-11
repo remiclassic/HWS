@@ -185,6 +185,12 @@ export function levelFromTotalXp(xp: number): number {
   return 1 + Math.floor(Math.sqrt(xp / 45));
 }
 
+/** XP span of the level `xp` falls in — inverse of `levelFromTotalXp`, for progress bars. */
+export function levelXpBounds(xp: number): { level: number; floor: number; next: number } {
+  const level = levelFromTotalXp(xp);
+  return { level, floor: 45 * (level - 1) ** 2, next: 45 * level ** 2 };
+}
+
 export const meGamificationAchievementSchema = z.object({
   id: z.string(),
   title: z.string(),

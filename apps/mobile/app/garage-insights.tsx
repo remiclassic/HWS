@@ -1,30 +1,35 @@
-import { memo, useMemo } from "react";
+import { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import type { LineType, UserCarDto, UserCarStatus } from "@hotwheels/shared";
+import { BarRow } from "../components/ui/BarRow";
 import { Card } from "../components/ui/Card";
-import { HuntBadge } from "../components/ui/HuntBadge";
-import { LineChip } from "../components/ui/LineChip";
+import { CarRow } from "../components/ui/CarRow";
+import { EmptyState } from "../components/ui/EmptyState";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
+import { Skeleton } from "../components/ui/Skeleton";
+import { StatRow, StatTile } from "../components/ui/StatTile";
 import { useResponsiveLayout } from "../hooks/useResponsiveLayout";
 import { fetchGarage } from "../lib/api";
 import { theme, themedScrollIndicatorProps } from "../lib/theme";
 
-const StatBlock = memo(function StatBlock({ label, value }: { label: string; value: string | number }) {
-  return (
-    <View style={styles.statBlock}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-});
+const LINE_LABEL: Record<LineType, string> = {
+  Mainline: "Mainline",
+  Premium: "Premium",
+  RLC: "RLC",
+  TeamTransport: "Team Transport",
+  Entertainment: "Entertainment",
+  Other: "Other",
+};
 
 export default function GarageInsightsScreen() {
   const { isWide, contentMaxWidth } = useResponsiveLayout();
   const q = useQuery({ queryKey: ["garage"] as const, queryFn: fetchGarage });
 
-  const items = q.data?.items ?? [];
+  const items = useMemo(() => q.data?.items ?? [], [q.data?.items]);
 
-  const { byStatus, byLine, byYear, wantList } = useMemo(() => {
+  const { byStatus, byLine, byYear, wantList, hunts } = useMemo(() => {
     const statusCount: Record<UserCarStatus, number> = {
       Owned: 0,
       Want: 0,
@@ -33,6 +38,7 @@ export default function GarageInsightsScreen() {
     const lineCount: Partial<Record<LineType, number>> = {};
     const yearCount: Record<number, number> = {};
     const wants: UserCarDto[] = [];
+    let huntCount = 0;
 
     for (const it of items) {
       statusCount[it.status] += 1;
@@ -41,12 +47,13 @@ export default function GarageInsightsScreen() {
       const y = it.car?.year;
       if (typeof y === "number") yearCount[y] = (yearCount[y] ?? 0) + 1;
       if (it.status === "Want") wants.push(it);
+      else if (it.car && it.car.treasure_hunt_type !== "None") huntCount += 1;
     }
 
     const topYears = Object.entries(yearCount)
       .map(([y, c]) => ({ year: Number(y), count: c }))
       .sort((a, b) => b.count - a.count || b.year - a.year)
-      .slice(0, 8);
+      .slice(0, 6);
 
     const topLines = (Object.entries(lineCount) as [LineType, number][])
       .sort((a, b) => b[1] - a[1])
@@ -57,6 +64,7 @@ export default function GarageInsightsScreen() {
       byLine: topLines,
       byYear: topYears,
       wantList: wants,
+      hunts: huntCount,
     };
   }, [items]);
 
@@ -67,11 +75,30 @@ export default function GarageInsightsScreen() {
 
   if (q.isLoading) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>Loading garage…</Text>
+      <View style={[styles.root, styles.content, styles.loading]} accessibilityLabel="Loading insights">
+        <Skeleton height={76} radius={theme.radiusMd} />
+        <Skeleton height={180} radius={theme.radiusMd} />
+        <Skeleton height={180} radius={theme.radiusMd} />
       </View>
     );
   }
+
+  if (items.length === 0) {
+    return (
+      <View style={[styles.root, styles.center]}>
+        <EmptyState
+          icon="chart-box-outline"
+          title="No insights yet"
+          body="Save a few cars to your garage and we’ll break your collection down by line, year, and status."
+        >
+          <PrimaryButton label="Browse the catalog" onPress={() => router.navigate("/(tabs)")} />
+        </EmptyState>
+      </View>
+    );
+  }
+
+  const maxLine = byLine[0]?.[1] ?? 0;
+  const maxYear = byYear[0]?.count ?? 0;
 
   return (
     <ScrollView
@@ -79,64 +106,45 @@ export default function GarageInsightsScreen() {
       style={styles.root}
       contentContainerStyle={[styles.content, wideColumn]}
     >
-      <Text style={styles.kicker}>At a glance</Text>
-      <Text style={styles.title}>Garage insights</Text>
-      <Text style={styles.sub}>Derived from your saved items on this device.</Text>
-
-      <View style={styles.statRow}>
-        <StatBlock label="Total" value={items.length} />
-        <StatBlock label="Owned" value={byStatus.Owned} />
-        <StatBlock label="Want" value={byStatus.Want} />
-        <StatBlock label="Dupes" value={byStatus.Duplicate} />
-      </View>
+      <StatRow>
+        <StatTile label="Owned" value={byStatus.Owned} color={theme.officialText} />
+        <StatTile label="Want" value={byStatus.Want} color={theme.rlcText} />
+        <StatTile label="Dupes" value={byStatus.Duplicate} />
+        <StatTile label="Hunts" value={hunts} color={theme.trackYellow} />
+      </StatRow>
 
       <Card title="By line" style={styles.card}>
-        {byLine.length === 0 ? (
-          <Text style={styles.mutedSmall}>No line data yet.</Text>
-        ) : (
-          byLine.map(([line, count]) => (
-            <View key={line} style={styles.rowLine}>
-              <LineChip line={line} />
-              <Text style={styles.rowCount}>{count}</Text>
-            </View>
-          ))
-        )}
+        {byLine.map(([line, count]) => (
+          <BarRow key={line} label={LINE_LABEL[line]} value={count} max={maxLine} />
+        ))}
       </Card>
 
       <Card title="Top years" style={styles.card}>
-        {byYear.length === 0 ? (
-          <Text style={styles.mutedSmall}>No year data yet.</Text>
-        ) : (
-          byYear.map(({ year, count }) => (
-            <View key={year} style={styles.rowYear}>
-              <Text style={styles.yearTxt}>{year}</Text>
-              <Text style={styles.rowCount}>{count}</Text>
-            </View>
-          ))
-        )}
+        {byYear.map(({ year, count }) => (
+          <BarRow key={year} label={String(year)} value={count} max={maxYear} color={theme.trackOrange} />
+        ))}
       </Card>
 
-      <Card title="Want list" style={styles.card}>
-        {wantList.length === 0 ? (
-          <Text style={styles.mutedSmall}>Nothing on your want list.</Text>
-        ) : (
-          wantList.map((it) => (
-            <View key={it.id} style={styles.wantRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.wantTitle} numberOfLines={2}>
-                  {it.car?.casting_name ?? "Car"}
-                </Text>
-                {it.car ? (
-                  <View style={styles.wantChips}>
-                    <LineChip line={it.car.line_type} />
-                    <HuntBadge type={it.car.treasure_hunt_type} />
-                  </View>
-                ) : null}
-              </View>
-            </View>
-          ))
-        )}
-      </Card>
+      <Text style={styles.sectionTitle}>Want list</Text>
+      {wantList.length === 0 ? (
+        <Text style={styles.mutedSmall}>
+          Nothing on your want list. Mark a casting as Want to track it here.
+        </Text>
+      ) : (
+        wantList.map((it, i) => (
+          <CarRow
+            key={it.id}
+            index={i}
+            title={it.car?.casting_name ?? "Car"}
+            meta={it.car ? (it.car.series ? `${it.car.year} · ${it.car.series}` : String(it.car.year)) : ""}
+            imageUri={it.car?.primary_image_url}
+            line={it.car?.line_type}
+            hunt={it.car?.treasure_hunt_type}
+            onPress={() => router.push(`/car/${it.car_id}`)}
+            accessibilityLabel={`${it.car?.casting_name ?? "Car"}. Open reference`}
+          />
+        ))
+      )}
     </ScrollView>
   );
 }
@@ -144,47 +152,14 @@ export default function GarageInsightsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   content: { padding: theme.spaceLg, paddingBottom: theme.space3xl },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.bg },
-  kicker: { ...theme.typeKicker, color: theme.accent },
-  title: { ...theme.typeTitleLg, fontSize: 26, color: theme.text, marginTop: 4 },
-  sub: { marginTop: 8, color: theme.textSecondary, fontSize: 15, lineHeight: 22, fontWeight: "500" },
-  statRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spaceSm,
-    marginTop: theme.spaceLg,
-  },
-  statBlock: {
-    flexGrow: 1,
-    minWidth: "22%",
-    padding: theme.spaceMd,
-    backgroundColor: theme.bgElevated,
-    borderRadius: theme.radiusMd,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    alignItems: "center",
-  },
-  statValue: { fontSize: 22, fontWeight: "900", color: theme.text },
-  statLabel: { marginTop: 4, fontSize: 12, fontWeight: "700", color: theme.textMuted },
+  loading: { gap: theme.spaceLg },
+  center: { justifyContent: "center" },
   card: { marginTop: theme.spaceLg },
-  rowLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spaceSm,
-    gap: theme.spaceMd,
+  sectionTitle: {
+    ...theme.typeSection,
+    color: theme.text,
+    marginTop: theme.spaceXl,
+    marginBottom: theme.spaceMd,
   },
-  rowYear: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spaceSm,
-  },
-  yearTxt: { fontSize: 16, fontWeight: "800", color: theme.text },
-  rowCount: { fontSize: 16, fontWeight: "800", color: theme.accent },
-  wantRow: { marginBottom: theme.spaceMd, paddingBottom: theme.spaceMd, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
-  wantTitle: { fontSize: 16, fontWeight: "800", color: theme.text },
-  wantChips: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
-  muted: { color: theme.textMuted, fontWeight: "600" },
-  mutedSmall: { color: theme.textMuted, fontSize: 14, fontWeight: "500" },
+  mutedSmall: { color: theme.textMuted, fontSize: 14, lineHeight: 20, fontWeight: "500" },
 });

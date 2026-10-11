@@ -1,46 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  type TextStyle,
-} from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import type { UserCarCondition, UserCarStatus } from "@hotwheels/shared";
-import { Card } from "../../../components/ui/Card";
-import { ConfidenceBar } from "../../../components/ui/ConfidenceBar";
-import { FilterChip } from "../../../components/ui/FilterChip";
+import {
+  DEFAULT_GARAGE_ENTRY,
+  GarageEntryForm,
+  type GarageEntryDraft,
+} from "../../../components/garage/GarageEntryForm";
+import { EmptyState } from "../../../components/ui/EmptyState";
 import { HuntBadge } from "../../../components/ui/HuntBadge";
 import { LineChip } from "../../../components/ui/LineChip";
 import { PrimaryButton } from "../../../components/ui/PrimaryButton";
+import { Skeleton } from "../../../components/ui/Skeleton";
+import { useToast } from "../../../components/ui/Toast";
+import { errorMessage } from "../../../lib/errors";
 import { useResponsiveLayout } from "../../../hooks/useResponsiveLayout";
 import { OfflineBanner } from "../../../components/ui/OfflineBanner";
 import { useGarageQueueDepth } from "../../../hooks/useGarageQueueDepth";
 import { deleteGarageItemPhoto, fetchGarage, patchGarageItem } from "../../../lib/api";
 import { enqueueGarageOp, isTransientNetworkError } from "../../../lib/garageMutationQueue";
 import { getIsOnline, useOnline } from "../../../lib/network";
-import { garageConditionChipTint, garageStatusChipTint } from "../../../lib/garageFormChips";
 import { theme, themedScrollIndicatorProps } from "../../../lib/theme";
 
-const STATUSES: UserCarStatus[] = ["Owned", "Want", "Duplicate"];
-const CONDITIONS: UserCarCondition[] = ["Carded", "Loose", "Custom"];
 const THUMB = 96;
-
-/** Web: remove default focus ring so `notesInputFocused` border is visible. */
-const webNotesInputOutline = {
-  outlineWidth: 0,
-  outlineStyle: "none",
-} as unknown as TextStyle;
 
 export default function GarageItemEditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -50,6 +36,7 @@ export default function GarageItemEditScreen() {
   const qc = useQueryClient();
   const online = useOnline();
   const pendingGarage = useGarageQueueDepth();
+  const toast = useToast();
 
   const garageQuery = useQuery({
     queryKey: ["garage"] as const,
@@ -61,28 +48,33 @@ export default function GarageItemEditScreen() {
     [garageQuery.data?.items, rowId],
   );
 
-  const [status, setStatus] = useState<UserCarStatus>("Owned");
-  const [condition, setCondition] = useState<UserCarCondition>("Carded");
-  const [quantityStr, setQuantityStr] = useState("1");
-  const [notes, setNotes] = useState("");
-  const [notesFocused, setNotesFocused] = useState(false);
+  const [draft, setDraft] = useState<GarageEntryDraft>(DEFAULT_GARAGE_ENTRY);
 
   useEffect(() => {
     if (row) {
-      setStatus(row.status);
-      setCondition(row.condition);
-      setQuantityStr(String(row.quantity));
-      setNotes(row.notes ?? "");
+      setDraft({
+        status: row.status,
+        condition: row.condition,
+        quantity: row.quantity,
+        notes: row.notes ?? "",
+      });
     }
   }, [row]);
+
+  const dirty =
+    row != null &&
+    (draft.status !== row.status ||
+      draft.condition !== row.condition ||
+      draft.quantity !== row.quantity ||
+      draft.notes.trim() !== (row.notes ?? ""));
 
   const patch = useMutation({
     mutationFn: async () => {
       const body = {
-        status,
-        condition,
-        quantity: Math.max(1, Math.min(999, parseInt(quantityStr, 10) || 1)),
-        notes: notes.trim() ? notes.trim() : null,
+        status: draft.status,
+        condition: draft.condition,
+        quantity: draft.quantity,
+        notes: draft.notes.trim() ? draft.notes.trim() : null,
       };
       try {
         await patchGarageItem(rowId, body);
@@ -99,15 +91,15 @@ export default function GarageItemEditScreen() {
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await qc.invalidateQueries({ queryKey: ["gamification"] });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (res.queued) {
-        Alert.alert("Offline", "Update queued for sync.");
-      } else {
-        Alert.alert("Updated", "Garage entry saved");
-      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast.show(
+        res.queued
+          ? { kind: "info", message: "Offline — changes will sync when you’re back online." }
+          : { message: "Garage entry saved" },
+      );
       router.back();
     },
-    onError: (e) => Alert.alert("Could not save", String(e)),
+    onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
   const delPhoto = useMutation({
@@ -127,12 +119,14 @@ export default function GarageItemEditScreen() {
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["garage"] });
       await qc.invalidateQueries({ queryKey: ["gamification"] });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (res.queued) {
-        Alert.alert("Offline", "Photo removal queued for sync.");
-      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast.show(
+        res.queued
+          ? { kind: "info", message: "Offline — photo removal will sync later." }
+          : { message: "Photo removed" },
+      );
     },
-    onError: (e) => Alert.alert("Could not remove photo", String(e)),
+    onError: (e) => toast.show({ kind: "error", message: errorMessage(e) }),
   });
 
   const confirmRemovePhoto = useCallback(
@@ -154,18 +148,13 @@ export default function GarageItemEditScreen() {
       ? { maxWidth: contentMaxWidth, width: "100%" as const, alignSelf: "center" as const }
       : undefined;
 
-  if (!rowId) {
+  if (garageQuery.isLoading) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.error}>Missing garage item.</Text>
-      </View>
-    );
-  }
-
-  if (garageQuery.isLoading || !garageQuery.data) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>Loading…</Text>
+      <View style={[styles.root, styles.scroll, styles.loading]} accessibilityLabel="Loading garage entry">
+        <Skeleton height={84} radius={theme.radiusMd} />
+        <Skeleton width={THUMB} height={THUMB} radius={theme.radiusMd} />
+        <Skeleton height={46} radius={theme.radiusMd} />
+        <Skeleton height={46} radius={theme.radiusMd} />
       </View>
     );
   }
@@ -173,9 +162,13 @@ export default function GarageItemEditScreen() {
   if (!row) {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="car-off" size={36} color={theme.textMuted} />
-        <Text style={styles.error}>Item not found.</Text>
-        <Text style={styles.muted}>Pull to refresh My Garage and try again.</Text>
+        <EmptyState
+          icon="car-off"
+          title="Entry not found"
+          body="It may have been removed. Head back to your garage and pull to refresh."
+        >
+          <PrimaryButton label="Back to garage" variant="ghost" onPress={() => router.back()} />
+        </EmptyState>
       </View>
     );
   }
@@ -192,22 +185,31 @@ export default function GarageItemEditScreen() {
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
       >
-        <Card style={styles.headerCard}>
-          <Text style={styles.title}>{car?.casting_name ?? "Car"}</Text>
-          {car ? (
-            <>
-              <View style={styles.chipRow}>
-                <LineChip line={car.line_type} />
-                <HuntBadge type={car.treasure_hunt_type} />
-              </View>
-              <Text style={styles.meta}>
-                {car.year}
-                {car.series ? ` · ${car.series}` : ""}
-              </Text>
-              <ConfidenceBar score={car.confidence_score} label="Confidence" />
-            </>
-          ) : null}
-        </Card>
+        <Pressable
+          onPress={() => router.push(`/car/${row.car_id}`)}
+          style={({ pressed }) => [styles.headerCard, pressed && styles.headerCardPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`${car?.casting_name ?? "Car"}. View reference`}
+        >
+          <View style={styles.headerText}>
+            <Text style={styles.title} numberOfLines={2}>
+              {car?.casting_name ?? "Car"}
+            </Text>
+            {car ? (
+              <>
+                <Text style={styles.meta}>
+                  {car.year}
+                  {car.series ? ` · ${car.series}` : ""}
+                </Text>
+                <View style={styles.chipRow}>
+                  <LineChip line={car.line_type} tooltip={false} />
+                  <HuntBadge type={car.treasure_hunt_type} tooltip={false} />
+                </View>
+              </>
+            ) : null}
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color={theme.textMuted} />
+        </Pressable>
 
         <Text style={styles.chipLabel}>Your photos</Text>
         <ScrollView
@@ -222,8 +224,8 @@ export default function GarageItemEditScreen() {
             accessibilityRole="button"
             accessibilityLabel="Take or add a photo"
           >
-            <MaterialCommunityIcons name="camera-plus-outline" size={32} color={theme.accentSecondary} />
-            <Text style={styles.addPhotoTxt}>Add</Text>
+            <MaterialCommunityIcons name="camera-plus-outline" size={28} color={theme.accentSecondary} />
+            <Text style={styles.addPhotoTxt}>Add photo</Text>
           </Pressable>
           {photos.map((p) => (
             <View key={p.id} style={styles.thumbWrap}>
@@ -239,6 +241,8 @@ export default function GarageItemEditScreen() {
                 style={styles.thumbRemove}
                 onPress={() => confirmRemovePhoto(p.id)}
                 disabled={delPhoto.isPending}
+                hitSlop={8}
+                accessibilityRole="button"
                 accessibilityLabel="Remove photo"
               >
                 <MaterialCommunityIcons name="close" size={16} color="#fff" />
@@ -247,70 +251,16 @@ export default function GarageItemEditScreen() {
           ))}
         </ScrollView>
 
-        <Text style={styles.chipLabel}>Status</Text>
-        <View style={styles.chipWrap}>
-          {STATUSES.map((s) => (
-            <FilterChip
-              key={s}
-              label={s}
-              selected={status === s}
-              onPress={() => setStatus(s)}
-              a11yLabel={`Garage status: ${s}`}
-              selectedTint={garageStatusChipTint[s]}
-            />
-          ))}
-        </View>
-
-        <Text style={styles.chipLabel}>Condition</Text>
-        <View style={styles.chipWrap}>
-          {CONDITIONS.map((c) => (
-            <FilterChip
-              key={c}
-              label={c}
-              selected={condition === c}
-              onPress={() => setCondition(c)}
-              a11yLabel={`Condition: ${c}`}
-              selectedTint={garageConditionChipTint[c]}
-            />
-          ))}
-        </View>
-
-        <Text style={styles.chipLabel}>Quantity</Text>
-        <TextInput
-          value={quantityStr}
-          onChangeText={setQuantityStr}
-          keyboardType="number-pad"
-          style={styles.input}
-          placeholder="1"
-          placeholderTextColor={theme.textMuted}
-        />
-
-        <Text style={styles.chipLabel}>Notes</Text>
-        <TextInput
-          value={notes}
-          onChangeText={setNotes}
-          style={[
-            styles.input,
-            styles.notesInput,
-            notesFocused && styles.notesInputFocused,
-            Platform.OS === "web" && webNotesInputOutline,
-          ]}
-          placeholder="Purchase notes, location, trades…"
-          placeholderTextColor={theme.inputPlaceholder}
-          multiline
-          onFocus={() => setNotesFocused(true)}
-          onBlur={() => setNotesFocused(false)}
-          selectionColor={theme.accentSecondary}
-        />
+        <GarageEntryForm value={draft} onChange={setDraft} />
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + theme.spaceMd }]}>
         <View style={[styles.footerInner, wideColumn]}>
           <PrimaryButton
-            label={patch.isPending ? "Saving…" : "Save changes"}
+            label="Save changes"
             onPress={() => patch.mutate()}
             loading={patch.isPending}
-            icon={<MaterialCommunityIcons name="content-save-outline" size={22} color="#fff" />}
+            disabled={!dirty}
           />
         </View>
       </View>
@@ -321,28 +271,26 @@ export default function GarageItemEditScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   scroll: { padding: theme.spaceLg, paddingBottom: theme.space2xl },
-  center: {
-    flex: 1,
-    justifyContent: "center",
+  center: { flex: 1, justifyContent: "center", backgroundColor: theme.bg },
+  loading: { gap: theme.spaceLg },
+  headerCard: {
+    flexDirection: "row",
     alignItems: "center",
-    backgroundColor: theme.bg,
-    padding: theme.spaceXl,
-    gap: theme.spaceSm,
+    gap: theme.spaceMd,
+    padding: theme.spaceLg,
+    marginBottom: theme.spaceXl,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
   },
-  headerCard: { marginBottom: theme.spaceLg },
-  title: { ...theme.typeTitleLg, color: theme.text },
+  headerCardPressed: { backgroundColor: theme.bgRaised },
+  headerText: { flex: 1, minWidth: 0 },
+  title: { ...theme.typeTitleMd, color: theme.text },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: theme.spaceSm, marginTop: theme.spaceSm },
-  meta: { marginTop: theme.spaceSm, color: theme.textSecondary, fontSize: 15, fontWeight: "600" },
-  chipLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: theme.textMuted,
-    marginBottom: theme.spaceSm,
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-  },
-  chipWrap: { flexDirection: "row", flexWrap: "wrap", marginBottom: theme.spaceLg, gap: 0 },
-  photoStripWrap: { marginBottom: theme.spaceLg },
+  meta: { marginTop: 4, color: theme.textSecondary, fontSize: 15, fontWeight: "600" },
+  chipLabel: { fontSize: 14, fontWeight: "700", color: theme.textSecondary, marginBottom: theme.spaceSm },
+  photoStripWrap: { flexGrow: 0 },
   photoStrip: { flexDirection: "row", alignItems: "center", gap: theme.spaceSm, paddingRight: theme.spaceLg },
   addPhotoTile: {
     width: THUMB,
@@ -375,31 +323,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.borderStrong,
-    borderRadius: theme.radiusMd,
-    paddingHorizontal: theme.spaceMd,
-    paddingVertical: 14,
-    fontSize: 16,
-    backgroundColor: theme.bgElevated,
-    color: theme.text,
-    marginBottom: theme.spaceLg,
-  },
-  notesInput: {
-    minHeight: 100,
-    textAlignVertical: "top",
-    borderWidth: 1,
-    borderColor: theme.borderStrong,
-  },
-  notesInputFocused: {
-    borderColor: theme.accentSecondary,
-    shadowColor: theme.accentSecondary,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 2,
-  },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: theme.border,
@@ -407,6 +330,4 @@ const styles = StyleSheet.create({
     paddingTop: theme.spaceMd,
   },
   footerInner: { paddingHorizontal: theme.spaceLg },
-  error: { color: theme.danger, fontWeight: "700" },
-  muted: { color: theme.textMuted },
 });
