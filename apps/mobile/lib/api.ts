@@ -97,7 +97,12 @@ export async function fetchCars(query: CarsQuery): Promise<CarsListResponse> {
       "id, casting_name, year, series, line_type, treasure_hunt_type, last_verified_at, car_images(official_image_url)",
       { count: "exact" },
     );
-  if (query.q) q = q.ilike("casting_name", `%${query.q}%`);
+  if (query.q) {
+    // Match casting name or series. The term goes into PostgREST's `or()` filter string,
+    // so drop the characters that are syntax there (and LIKE wildcards).
+    const term = query.q.replace(/[,()"\\%*]/g, " ").trim();
+    if (term) q = q.or(`casting_name.ilike.%${term}%,series.ilike.%${term}%`);
+  }
   if (query.year !== undefined) q = q.eq("year", query.year);
   if (query.series) q = q.eq("series", query.series);
   if (query.line_type) q = q.eq("line_type", query.line_type);
@@ -522,51 +527,61 @@ export async function recordGamificationScan(): Promise<void> {
 
 export async function fetchLeaderboard(limit = 50): Promise<LeaderboardResponse> {
   const me = (await supabase.auth.getUser()).data.user?.id ?? null;
-  const { data, error } = await supabase
+  // user_gamification and user_profiles both hang off auth.users with no FK between
+  // them, so PostgREST can't embed one in the other — fetch both and join here.
+  // RLS also returns the caller's own row even when they haven't opted in, hence +1.
+  const gam = await supabase
     .from("user_gamification")
-    .select(
-      `user_id, total_xp,
-       user_profiles!inner(display_name, leaderboard_slug, leaderboard_opt_in)`,
-    )
-    .eq("user_profiles.leaderboard_opt_in", true)
+    .select("user_id, total_xp")
     .order("total_xp", { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(error.message);
-  const entries = (data ?? []).map((r, idx) => {
-    const row = r as unknown as {
-      user_id: string;
-      total_xp: number;
-      user_profiles: { display_name: string | null; leaderboard_slug: string | null };
-    };
-    return {
-      rank: idx + 1,
-      display_name: row.user_profiles.display_name ?? "Collector",
-      level: levelFromTotalXp(row.total_xp),
-      total_xp: row.total_xp,
-      leaderboard_slug: row.user_profiles.leaderboard_slug ?? "",
-      is_you: row.user_id === me,
-    };
-  });
+    .limit(limit + 1);
+  if (gam.error) throw new Error(gam.error.message);
+  const rows = gam.data ?? [];
+  const prof = rows.length
+    ? await supabase
+        .from("user_profiles")
+        .select("user_id, display_name, leaderboard_slug")
+        .eq("leaderboard_opt_in", true)
+        .in(
+          "user_id",
+          rows.map((r) => r.user_id),
+        )
+    : { data: [], error: null };
+  if (prof.error) throw new Error(prof.error.message);
+  const profiles = new Map((prof.data ?? []).map((pr) => [pr.user_id, pr]));
+  const entries = rows
+    .filter((r) => profiles.has(r.user_id))
+    .slice(0, limit)
+    .map((r, idx) => {
+      const profile = profiles.get(r.user_id);
+      return {
+        rank: idx + 1,
+        display_name: profile?.display_name ?? "Collector",
+        level: levelFromTotalXp(r.total_xp),
+        total_xp: r.total_xp,
+        leaderboard_slug: profile?.leaderboard_slug ?? "",
+        is_you: r.user_id === me,
+      };
+    });
   return leaderboardResponseSchema.parse({ entries });
 }
 
 export async function fetchPublicCollectorProfile(slug: string): Promise<PublicCollectorProfile> {
   const { data, error } = await supabase
     .from("user_profiles")
-    .select(
-      `user_id, display_name, leaderboard_slug,
-       user_gamification!inner(total_xp, current_streak)`,
-    )
+    .select("user_id, display_name, leaderboard_slug")
     .eq("leaderboard_slug", slug)
     .eq("leaderboard_opt_in", true)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Collector not found");
-  const row = data as unknown as {
-    user_id: string;
-    display_name: string | null;
-    leaderboard_slug: string | null;
-    user_gamification: { total_xp: number; current_streak: number };
-  };
+  // Separate query: there is no FK between user_profiles and user_gamification to embed on.
+  const gam = await supabase
+    .from("user_gamification")
+    .select("total_xp, current_streak")
+    .eq("user_id", data.user_id)
+    .single();
+  if (gam.error || !gam.data) throw new Error(gam.error?.message ?? "Collector not found");
+  const row = { ...data, user_gamification: gam.data };
   const { count: achievementCount } = await supabase
     .from("user_achievements")
     .select("achievement_id", { count: "exact", head: true })

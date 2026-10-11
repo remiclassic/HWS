@@ -64,7 +64,9 @@ export default function GarageScreen() {
   const toast = useToast();
 
   const [filter, setFilter] = useState<StatusFilter>("all");
+  // `menuFor` outlives `menuOpen` so the sheet keeps its content while it fades out.
   const [menuFor, setMenuFor] = useState<UserCarDto | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -128,9 +130,10 @@ export default function GarageScreen() {
     void Haptics.selectionAsync();
     setConfirmingRemove(false);
     setMenuFor(row);
+    setMenuOpen(true);
   }, []);
 
-  const closeMenu = useCallback(() => setMenuFor(null), []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -289,7 +292,7 @@ export default function GarageScreen() {
       />
 
       <BottomSheet
-        visible={menuFor != null}
+        visible={menuOpen && menuFor != null}
         onClose={closeMenu}
         title={confirmingRemove ? "Remove from garage?" : menuName}
         subtitle={

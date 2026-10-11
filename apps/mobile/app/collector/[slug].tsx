@@ -67,11 +67,9 @@ export default function PublicCollectorScreen() {
       </View>
 
       <StatRow>
-        <StatTile
-          label="Rank"
-          value={p.leaderboard_rank != null ? `#${p.leaderboard_rank}` : "—"}
-          color={theme.trackYellow}
-        />
+        {p.leaderboard_rank != null ? (
+          <StatTile label="Rank" value={`#${p.leaderboard_rank}`} color={theme.trackYellow} />
+        ) : null}
         <StatTile label="Level" value={p.level} />
         <StatTile label="XP" value={p.total_xp.toLocaleString()} />
       </StatRow>
