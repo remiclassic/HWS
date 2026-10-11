@@ -15,7 +15,7 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 if (!API_URL || !SERVICE_ROLE || !ANON_KEY) {
   throw new Error(
     "Achievement tests require SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_ANON_KEY. " +
-      "Run `npx supabase status` and export the values before `npm run test:rls`.",
+      "Start the local stack with `npm run db:start`, or export the values.",
   );
 }
 

@@ -11,11 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // Keys are read from the environment so this file never contains credential-shaped
 // literals (GitHub push protection rejects the CLI's published default key by pattern).
-// Populate from `supabase status`:
-//   export SUPABASE_URL="$(npx supabase status --output json | jq -r .API_URL)"
-//   export SUPABASE_SERVICE_ROLE_KEY="$(npx supabase status --output json | jq -r .SERVICE_ROLE_KEY)"
-//   export SUPABASE_ANON_KEY="$(npx supabase status --output json | jq -r .ANON_KEY)"
-// Or source `supabase/tests/.env.local` (git-ignored) before running vitest.
+// vitest.config.ts fills them in from `supabase status` when they are not already exported.
 const API_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -23,7 +19,7 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 if (!API_URL || !SERVICE_ROLE || !ANON_KEY) {
   throw new Error(
     "RLS tests require SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_ANON_KEY. " +
-      "Run `npx supabase status` and export the values before `npm run test:rls`.",
+      "Start the local stack with `npm run db:start`, or export the values.",
   );
 }
 
