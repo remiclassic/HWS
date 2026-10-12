@@ -4,6 +4,7 @@
 // - Every public table has RLS; policies live in supabase/migrations/*.sql.
 import {
   boolean,
+  check,
   date,
   foreignKey,
   index,
@@ -19,6 +20,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // Reference to the Supabase-managed auth.users table (do not migrate this).
 const authSchema = pgSchema("auth");
@@ -84,6 +86,9 @@ export const canonicalCars = pgTable("canonical_cars", {
   caseCode: varchar("case_code", { length: 64 }),
   sku: varchar("sku", { length: 64 }),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+  /** Treasure Hunt field guide (null / empty when the casting is not a hunt). */
+  thSummary: text("th_summary"),
+  thMarkers: text("th_markers").array().notNull().default([]),
 });
 
 export const carVariations = pgTable("car_variations", {
@@ -217,5 +222,25 @@ export const userAchievements = pgTable(
   (t) => [
     primaryKey({ columns: [t.userId, t.achievementId] }),
     index("user_achievements_user_id_idx").on(t.userId),
+  ],
+);
+
+/**
+ * Pre-launch waitlist, written by the public landing page (marketing/site) with the anon key.
+ * Insert-only for clients; see the waitlist_signups migration for RLS + column grants.
+ */
+export const waitlistSignups = pgTable(
+  "waitlist_signups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: varchar("email", { length: 254 }).notNull(),
+    platform: varchar("platform", { length: 16 }).notNull().default("any"),
+    source: varchar("source", { length: 64 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("waitlist_signups_email_lower_key").on(sql`lower(${t.email})`),
+    check("waitlist_signups_email_format", sql`${t.email} ~ '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'`),
+    check("waitlist_signups_platform_check", sql`${t.platform} in ('ios', 'android', 'any')`),
   ],
 );

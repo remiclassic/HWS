@@ -1,0 +1,228 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  Spotter promo — 1080x1920, 24s. Deterministic: every frame is a pure function of t.
+  Preview in a browser: open this file (plays in real time; add ?t=12.5 to freeze a frame).
+  Render: tools/render-promo.mjs steps window.renderAt(t) and pipes frames to ffmpeg.
+  ?race=<file url of folder with r001.jpg…r118.jpg> supplies the race clip frames.
+-->
+<style>
+  :root { --red:#E8222C; --blue:#3B9BFF; --orange:#FF7A1A; --yellow:#FFD400; --bg:#050D1A; --text:#F5F8FC; --sub:#A9C3E6; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: #000; overflow: hidden; }
+  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--bg);
+    font-family: "Segoe UI", system-ui, sans-serif; color: var(--text); transform-origin: 0 0; }
+  .bg { position: absolute; inset: 0; background: linear-gradient(180deg, #0E2A4E 0%, #081A30 50%, #050D1A 100%); }
+  #glow { position: absolute; width: 1500px; height: 1500px; left: -210px; top: 100px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(59,155,255,.34), transparent); }
+  #lanes { position: absolute; left: -400px; top: 980px; width: 1900px; height: 260px; transform: rotate(-9deg);
+    background: linear-gradient(135deg, #FF8F3A, #E85A00); box-shadow: 0 30px 80px rgba(0,0,0,.45); overflow: hidden; }
+  #lanes i { position: absolute; top: 118px; height: 24px; width: 120px; background: rgba(255,255,255,.85); border-radius: 4px; }
+  #lanes::before, #lanes::after { content: ""; position: absolute; left: 0; right: 0; height: 12px; background: rgba(0,0,0,.22); }
+  #lanes::before { top: 22px; } #lanes::after { bottom: 22px; }
+  section { position: absolute; inset: 0; display: none; }
+  .kicker { position: absolute; left: 0; right: 0; top: 150px; text-align: center; font-weight: 900; font-size: 40px; letter-spacing: 8px; text-transform: uppercase; color: var(--orange); }
+  h1 { position: absolute; left: 70px; right: 70px; top: 215px; text-align: center; font-weight: 900; font-size: 104px; line-height: 1.05; letter-spacing: -2.5px; }
+  h1 span { display: inline-block; white-space: pre; } h1 em { font-style: normal; color: var(--yellow); }
+  .phone { position: absolute; left: 220px; top: 540px; width: 640px; border-radius: 76px; padding: 14px;
+    background: linear-gradient(160deg, #2B3A52, #0A1220 40%, #1B2740);
+    box-shadow: 0 0 0 2px #3A4C6B, 0 50px 110px rgba(0,0,0,.65), 0 0 90px rgba(59,155,255,.25); }
+  .screen { position: relative; border-radius: 62px; overflow: hidden; background: #0C2038; }
+  .status { height: 74px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 50px 10px; font-weight: 700; font-size: 24px; }
+  .status b { width: 36px; height: 17px; border-radius: 5px; border: 2px solid rgba(245,248,252,.6); position: relative; }
+  .status b::after { content: ""; position: absolute; inset: 2px 8px 2px 2px; background: var(--text); border-radius: 2px; }
+  .island { position: absolute; top: 28px; left: 50%; width: 176px; height: 46px; margin-left: -88px; border-radius: 26px; background: #000; }
+  .view { position: relative; width: 612px; height: 1326px; overflow: hidden; }
+  .view img { position: absolute; left: 0; top: 0; width: 100%; display: block; }
+  .chip { position: absolute; padding: 14px 30px; border-radius: 999px; font-weight: 900; font-size: 44px; border: 4px solid; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+  .chip.th { background: #3A2A05; border-color: #F2B90F; color: #FFD75A; }
+  .chip.sth { background: #2B1250; border-color: #A855F7; color: #EBD8FF; }
+  .stat { position: absolute; top: 470px; width: 280px; padding: 18px 0 16px; border-radius: 26px; text-align: center; background: #0C2038; border: 3px solid #1F5FBF; box-shadow: 0 18px 40px rgba(0,0,0,.5); }
+  .stat u { display: block; text-decoration: none; font-weight: 900; font-size: 84px; line-height: 1; }
+  .stat small { font-weight: 800; font-size: 24px; letter-spacing: 4px; color: var(--sub); }
+  .car { position: absolute; width: 620px; filter: drop-shadow(0 30px 30px rgba(0,0,0,.55)); }
+  #logo { position: absolute; left: 110px; top: 560px; width: 860px;
+    -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 82%, transparent 100%); }
+  .sub { position: absolute; left: 90px; right: 90px; text-align: center; font-weight: 800; font-size: 54px; line-height: 1.2; color: var(--text); }
+  .cta { position: absolute; left: 190px; right: 190px; top: 1240px; padding: 34px 0; border-radius: 999px; text-align: center; font-weight: 900; font-size: 58px;
+    background: var(--red); box-shadow: 0 0 0 6px rgba(232,34,44,.25), 0 24px 60px rgba(232,34,44,.45); }
+  .plat { position: absolute; left: 0; right: 0; top: 1440px; text-align: center; font-weight: 800; font-size: 38px; letter-spacing: 6px; color: var(--sub); text-transform: uppercase; }
+  #wipe { position: absolute; left: -540px; top: -300px; width: 2160px; height: 2520px; visibility: hidden;
+    background: linear-gradient(90deg, #FFD400 0 4%, #FF8F3A 4%, #E85A00 96%, #E8222C 96% 100%); }
+  #speed { position: absolute; inset: 0; overflow: hidden; }
+  #speed i { position: absolute; height: 6px; border-radius: 3px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.7)); transform: rotate(-90deg); transform-origin: 0 0; }
+</style>
+
+<div id="stage">
+  <div class="bg"></div><div id="glow"></div><div id="lanes"></div>
+
+  <section id="s0">
+    <img class="car" id="c1" src="assets/bone-shaker.webp">
+    <img class="car" id="c2" src="assets/charger-rt.webp">
+    <img class="car" id="c3" src="assets/skyline-gtr-r34.webp">
+    <img id="logo" src="assets/spotter-logo.png">
+    <div class="sub" id="s0sub" style="top:1010px">The pocket field guide<br>for die-cast hunters</div>
+  </section>
+
+  <section id="s1"><div class="kicker">Find</div><h1>Spot it <em>before</em> it leaves the pegs</h1>
+    <div class="phone" data-img="../screenshots/raw/tall-browse.png"></div></section>
+
+  <section id="s2"><div class="kicker" style="color:var(--yellow)">Decode</div><h1>Know a <em>Treasure Hunt</em> on sight</h1>
+    <div class="phone" data-img="../screenshots/raw/05-treasure-hunt-guide.png"></div>
+    <div class="chip th" id="b1" style="left:60px;top:760px">🏆 TH</div>
+    <div class="chip sth" id="b2" style="left:790px;top:960px">★ STH</div>
+    <img class="car" id="c4" src="assets/bone-shaker.webp" style="left:-70px;top:1420px;width:560px"></section>
+
+  <section id="s3"><div class="kicker" style="color:var(--blue)">Collect</div><h1>Your garage, <em>in your pocket</em></h1>
+    <div class="phone" data-img="../screenshots/raw/02-garage.png" style="top:700px"></div>
+    <div class="stat" style="left:90px"><u id="n1" style="color:#22C55E">0</u><small>OWNED</small></div>
+    <div class="stat" style="left:400px"><u id="n2" style="color:#3B9BFF">0</u><small>WANTED</small></div>
+    <div class="stat" style="left:710px"><u id="n3" style="color:#FFD400">0</u><small>HUNTS</small></div></section>
+
+  <section id="s4"><div id="speed"></div><div class="kicker" style="color:var(--yellow)">Play</div><h1>Then <em>race</em> the cars you own</h1>
+    <div class="phone" data-race="1"></div></section>
+
+  <section id="s5"><div class="kicker" style="color:var(--blue)">Level up</div><h1>Streaks, badges, <em>leaderboards</em></h1>
+    <div class="phone" id="pA" data-img="../screenshots/raw/06-collector-progress.png"></div>
+    <div class="phone" id="pB" data-img="../screenshots/raw/07-leaderboard.png"></div></section>
+
+  <section id="s6">
+    <img id="logo2" src="assets/spotter-logo.png" style="position:absolute;left:110px;top:420px;width:860px;-webkit-mask-image:radial-gradient(ellipse 50% 50% at 50% 50%,#000 82%,transparent 100%)">
+    <div class="sub" id="s6a" style="top:860px">Find it. Collect it.<br><span style="color:var(--yellow)">Race it.</span></div>
+    <div class="cta" id="cta">Join the waitlist</div>
+    <div class="plat" id="plat">Coming soon · iOS &amp; Android</div>
+    <img class="car" id="c5" src="assets/charger-rt.webp" style="top:1560px;width:520px"></section>
+
+  <div id="wipe"></div>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const DUR = 24, CUTS = [0, 3.2, 7, 10.6, 14, 18.6, 21.2, DUR];
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const p = (L, a, d) => clamp((L - a) / d);
+const outCubic = (x) => 1 - Math.pow(1 - x, 3);
+const inOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const outBack = (x) => 1 + 2.4 * Math.pow(x - 1, 3) + 1.4 * Math.pow(x - 1, 2);
+const tf = (el, s) => { el.style.transform = s; };
+
+// Build phones
+const RACE_N = 118, raceImgs = [];
+document.querySelectorAll(".phone").forEach((ph) => {
+  ph.innerHTML = '<div class="screen"><div class="status"><span>9:41</span><b></b></div><div class="view"></div></div><div class="island"></div>';
+  const view = ph.querySelector(".view");
+  if (ph.dataset.race) {
+    view.style.height = "1256px";
+    for (let i = 1; i <= RACE_N; i++) {
+      const im = new Image(); im.src = (q.get("race") || "race") + "/r" + String(i).padStart(3, "0") + ".jpg";
+      im.style.visibility = "hidden"; view.appendChild(im); raceImgs.push(im);
+    }
+  } else { const im = new Image(); im.src = ph.dataset.img; view.appendChild(im); }
+});
+// Split headlines into words for staggered reveal
+document.querySelectorAll("h1").forEach((h) => {
+  const out = [];
+  h.childNodes.forEach((n) => {
+    const em = n.nodeType === 1;
+    n.textContent.split(/(\s+)/).forEach((w) => { if (!w) return; if (/^\s+$/.test(w)) out.push(" "); else out.push(`<span>${em ? "<em>" + w + "</em>" : w}</span>`); });
+  });
+  h.innerHTML = out.join("");
+});
+for (let i = 0; i < 9; i++) { const d = document.createElement("i"); $("lanes").appendChild(d); }
+for (let i = 0; i < 14; i++) { const d = document.createElement("i"); $("speed").appendChild(d); }
+
+function headline(sec, L) {
+  const k = sec.querySelector(".kicker"), words = sec.querySelectorAll("h1 span");
+  const a = outCubic(p(L, 0.25, 0.4)); k.style.opacity = a; tf(k, `translateY(${(1 - a) * 30}px)`);
+  words.forEach((w, i) => { const e = outBack(p(L, 0.35 + i * 0.07, 0.45)); w.style.opacity = clamp(e * 1.5); tf(w, `translateY(${(1 - e) * 70}px)`); });
+}
+function phoneIn(ph, L, delay = 0.3, extra = "") {
+  const e = outCubic(p(L, delay, 0.8));
+  tf(ph, `translateY(${(1 - e) * 1100}px) rotate(${(1 - e) * 7}deg) ${extra}`);
+}
+
+window.renderAt = function (t) {
+  t = clamp(t, 0, DUR - 1e-4);
+  let si = 0; while (t >= CUTS[si + 1]) si++;
+  const L = t - CUTS[si], D = CUTS[si + 1] - CUTS[si];
+  for (let i = 0; i < 7; i++) $("s" + i).style.display = i === si ? "block" : "none";
+
+  // Ambient
+  tf($("glow"), `translate(${Math.sin(t * 0.5) * 90}px, ${Math.cos(t * 0.4) * 120}px)`);
+  const laneOn = si === 0 || si === 6;
+  $("lanes").style.top = (laneOn ? 1500 : 1010) + "px";
+  $("lanes").querySelectorAll("i").forEach((d, i) => { d.style.left = (((i * 240 - t * 900) % 2160) + 2160) % 2160 - 130 + "px"; });
+
+  // Wipe across each cut
+  const w = $("wipe"); let wv = false;
+  for (let c = 1; c < CUTS.length - 1; c++) {
+    const x = (t - CUTS[c]) / 0.36;
+    if (x > -1 && x < 1) { wv = true; tf(w, `translateX(${x * 2900}px) skewX(-14deg)`); }
+  }
+  w.style.visibility = wv ? "visible" : "hidden";
+
+  if (si === 0) {
+    const e = outBack(p(L, 0.35, 0.6)); $("logo").style.opacity = clamp(p(L, 0.35, 0.2));
+    tf($("logo"), `scale(${0.3 + 0.7 * e + L * 0.012}) rotate(${(1 - e) * -8}deg)`);
+    const s = outCubic(p(L, 1.25, 0.5)); $("s0sub").style.opacity = s; tf($("s0sub"), `translateY(${(1 - s) * 40}px)`);
+    [["c1", 0.0, 1560], ["c2", 0.9, 1500], ["c3", 1.8, 1570]].forEach(([id, d, y]) => {
+      const x = p(L, d, 1.25); const el = $(id);
+      el.style.top = y - 330 + "px"; el.style.opacity = x > 0 && x < 1 ? 1 : 0;
+      tf(el, `translateX(${1200 - x * 2100}px) rotate(-9deg)`);
+    });
+  }
+  if (si === 1) {
+    const sec = $("s1"); headline(sec, L); const ph = sec.querySelector(".phone"); phoneIn(ph, L);
+    const im = ph.querySelector("img"); const max = im.naturalHeight * (612 / im.naturalWidth) - 1326;
+    tf(im, `translateY(${-inOut(p(L, 1.3, 2.2)) * Math.min(max, 1500)}px)`);
+  }
+  if (si === 2) {
+    const sec = $("s2"); headline(sec, L); phoneIn(sec.querySelector(".phone"), L);
+    [["b1", 1.2, -10], ["b2", 1.5, 8]].forEach(([id, d, r]) => { const e = outBack(p(L, d, 0.45)); $(id).style.opacity = clamp(e * 2); tf($(id), `scale(${e}) rotate(${r + Math.sin((L + d) * 2.2) * 3}deg)`); });
+    const e = outCubic(p(L, 1.7, 0.7)); $("c4").style.opacity = clamp(e * 3); tf($("c4"), `translateX(${(1 - e) * -700}px) rotate(-4deg)`);
+  }
+  if (si === 3) {
+    const sec = $("s3"); headline(sec, L); phoneIn(sec.querySelector(".phone"), L);
+    [["n1", 11], ["n2", 4], ["n3", 3]].forEach(([id, n], i) => {
+      const box = $(id).parentNode, e = outBack(p(L, 0.9 + i * 0.15, 0.45));
+      box.style.opacity = clamp(e * 2); tf(box, `scale(${e})`);
+      $(id).textContent = Math.round(n * outCubic(p(L, 1.0 + i * 0.15, 1.1)));
+    });
+  }
+  if (si === 4) {
+    const sec = $("s4"); headline(sec, L);
+    phoneIn(sec.querySelector(".phone"), L, 0.2, `translate(${Math.sin(L * 31) * 2}px, ${Math.cos(L * 27) * 2}px)`);
+    const idx = Math.min(RACE_N - 1, Math.floor(p(L, 0.5, D - 0.7) * (RACE_N - 1)));
+    raceImgs.forEach((im, i) => { im.style.visibility = i === idx ? "visible" : "hidden"; });
+    $("speed").querySelectorAll("i").forEach((d, i) => {
+      const x = (i * 83 + (i % 2 ? 0 : 560)) % 1080, onSide = x < 190 || x > 890;
+      const y = ((i * 311 + L * (1500 + i * 90)) % 2400) - 300;
+      d.style.left = x + "px"; d.style.top = y + "px"; d.style.width = 180 + (i % 4) * 70 + "px"; d.style.opacity = onSide ? 0.5 : 0;
+    });
+  }
+  if (si === 5) {
+    const sec = $("s5"); headline(sec, L);
+    const a = outCubic(p(L, 0.3, 0.8)), b = outCubic(p(L, 0.5, 0.8));
+    tf($("pA"), `translate(${-190 - (1 - a) * 900}px, ${40 - L * 14}px) rotate(-6deg) scale(.86)`);
+    tf($("pB"), `translate(${190 + (1 - b) * 900}px, ${150 - L * 22}px) rotate(6deg) scale(.86)`);
+  }
+  if (si === 6) {
+    const e = outBack(p(L, 0.3, 0.55)); $("logo2").style.opacity = clamp(p(L, 0.3, 0.2)); tf($("logo2"), `scale(${0.4 + 0.6 * e})`);
+    const a = outCubic(p(L, 0.75, 0.45)); $("s6a").style.opacity = a; tf($("s6a"), `translateY(${(1 - a) * 40}px)`);
+    const c = outBack(p(L, 1.1, 0.5)); $("cta").style.opacity = clamp(c * 2); tf($("cta"), `scale(${c * (1 + Math.sin(Math.max(0, L - 1.6) * 6) * 0.025)})`);
+    $("plat").style.opacity = outCubic(p(L, 1.45, 0.4));
+    const x = outCubic(p(L, 0.5, 1.1)); tf($("c5"), `translateX(${1200 - x * 920}px) rotate(-9deg)`);
+  }
+  return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+};
+
+window.ready = Promise.all([...document.images].map((im) => im.decode().catch(() => {}))).then(() => renderAt(0));
+if (!q.has("render")) {
+  // Live preview: scale to fit the window and loop (or freeze at ?t=).
+  const fit = () => { const s = Math.min(innerWidth / 1080, innerHeight / 1920); tf($("stage"), `scale(${s})`); };
+  fit(); addEventListener("resize", fit);
+  if (q.has("t")) ready.then(() => renderAt(+q.get("t")));
+  else { const t0 = performance.now(); const loop = () => { renderAt(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); }; ready.then(loop); }
+}
+</script>

@@ -6,7 +6,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { Tabs } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { AppTabBar } from "../../components/navigation/AppTabBar";
-import { IconShareExport, IconSpotterTab, IconGarageTab } from "../../components/icons/AppIcons";
+import { IconShareExport } from "../../components/icons/AppIcons";
 import { fetchGarage } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import { useToast } from "../../contexts/ToastContext";
@@ -98,7 +98,7 @@ export default function TabLayout() {
           letterSpacing: -0.2,
         },
         tabBarActiveTintColor: theme.accent,
-        tabBarInactiveTintColor: theme.textMuted,
+        tabBarInactiveTintColor: theme.navInactive,
         tabBarStyle: {
           position: "absolute",
           backgroundColor: "transparent",
@@ -112,12 +112,8 @@ export default function TabLayout() {
         options={{
           title: "Spotter",
           tabBarLabel: "Browse",
-          tabBarIcon: ({ color, size }) => <IconSpotterTab color={color} size={size ?? 24} />,
-          headerRight: () => (
-            <View style={headerActionsRowStyle}>
-              <SettingsHeaderButton />
-            </View>
-          ),
+          // Browse draws its own branded header scene (logo + settings).
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -125,7 +121,6 @@ export default function TabLayout() {
         options={{
           title: "My Garage",
           tabBarLabel: "Garage",
-          tabBarIcon: ({ color, size }) => <IconGarageTab color={color} size={size ?? 24} />,
           headerRight: () => (
             <View style={headerActionsRowStyle}>
               <GarageExportHeaderButton />

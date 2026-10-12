@@ -52,22 +52,23 @@ export const IconGarageTab = memo(function IconGarageTab({ color, size = 24 }: I
   );
 });
 
-/** Header: barcode scanner */
+/** Barcode scanner: viewfinder corners around bars of mixed weight */
 export const IconBarcodeScan = memo(function IconBarcodeScan({ color, size = 26 }: IconProps) {
   const s = size;
   return (
     <Svg width={s} height={s} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M4 7V5a1 1 0 0 1 1-1h2M4 17v2a1 1 0 0 0 1 1h2m10-16h2a1 1 0 0 1 1 1v2m0 10v2a1 1 0 0 1-1 1h-2"
+        d="M3.5 8V5.5a2 2 0 0 1 2-2H8M16 3.5h2.5a2 2 0 0 1 2 2V8M20.5 16v2.5a2 2 0 0 1-2 2H16M8 20.5H5.5a2 2 0 0 1-2-2V16"
         stroke={color}
-        strokeWidth={1.65}
+        strokeWidth={1.9}
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <Line x1={8} y1={8} x2={8} y2={16} stroke={color} strokeWidth={1.4} strokeLinecap="round" />
-      <Line x1={10.5} y1={7} x2={10.5} y2={17} stroke={color} strokeWidth={1.4} strokeLinecap="round" />
-      <Line x1={13} y1={8.5} x2={13} y2={15.5} stroke={color} strokeWidth={1.4} strokeLinecap="round" />
-      <Line x1={15.5} y1={7} x2={15.5} y2={17} stroke={color} strokeWidth={1.4} strokeLinecap="round" />
-      <Line x1={18} y1={9} x2={18} y2={15} stroke={color} strokeWidth={1.4} strokeLinecap="round" />
+      <Rect x={7} y={7.5} width={1.6} height={9} rx={0.4} fill={color} />
+      <Rect x={9.5} y={7.5} width={0.9} height={9} rx={0.4} fill={color} />
+      <Rect x={11.15} y={7.5} width={1.7} height={9} rx={0.4} fill={color} />
+      <Rect x={13.6} y={7.5} width={0.9} height={9} rx={0.4} fill={color} />
+      <Rect x={15.4} y={7.5} width={1.6} height={9} rx={0.4} fill={color} />
     </Svg>
   );
 });

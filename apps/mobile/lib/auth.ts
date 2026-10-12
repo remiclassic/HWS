@@ -11,11 +11,25 @@ export function useSession(): { status: AuthStatus; session: Session | null } {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setStatus(data.session ? "authenticated" : "unauthenticated");
-    });
+    // getSession() takes a cross-tab lock. If another tab (or a previous Fast Refresh
+    // instance of the client) steals it, the call rejects — retry rather than leave
+    // the app stuck on the boot screen with an unhandled rejection.
+    const readSession = (attemptsLeft: number) => {
+      supabase.auth
+        .getSession()
+        .then(({ data }) => {
+          if (!mounted) return;
+          setSession(data.session);
+          setStatus(data.session ? "authenticated" : "unauthenticated");
+        })
+        .catch(() => {
+          if (!mounted) return;
+          if (attemptsLeft > 0) setTimeout(() => readSession(attemptsLeft - 1), 400);
+          // onAuthStateChange below still delivers the session if there is one.
+          else setStatus((s) => (s === "loading" ? "unauthenticated" : s));
+        });
+    };
+    readSession(3);
     let lastUserId: string | null | undefined = undefined;
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);

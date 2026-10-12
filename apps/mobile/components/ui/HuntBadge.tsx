@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { theme } from "../../lib/theme";
 import { AnimatedTooltip } from "./AnimatedTooltip";
 
@@ -18,7 +19,11 @@ export const HuntBadge = memo(function HuntBadge({ type }: { type: "None" | "TH"
         style={[styles.wrap, isSth ? styles.sth : styles.th]}
         accessibilityLabel={a11yLabel}
       >
-        <View style={[styles.dot, isSth ? styles.dotSth : styles.dotTh]} />
+        <MaterialCommunityIcons
+          name={isSth ? "star" : "trophy"}
+          size={13}
+          color={isSth ? theme.sthText : theme.thText}
+        />
         <Text style={[styles.txt, isSth ? styles.txtSth : styles.txtTh]}>{type}</Text>
       </View>
     </AnimatedTooltip>
@@ -29,21 +34,14 @@ const styles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: theme.radiusFull,
-    borderWidth: 1,
+    borderWidth: 1.5,
   },
-  th: {
-    backgroundColor: theme.thBg,
-    borderColor: theme.trackYellow,
-    borderWidth: 2,
-  },
+  th: { backgroundColor: theme.thBg, borderColor: theme.thBorder },
   sth: { backgroundColor: theme.sthBg, borderColor: theme.sthBorder },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  dotTh: { backgroundColor: theme.thText },
-  dotSth: { backgroundColor: theme.sthText },
   txt: { fontSize: 12, fontWeight: "800", letterSpacing: 0.5 },
   txtTh: { color: theme.thText },
   txtSth: { color: theme.sthText },

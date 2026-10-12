@@ -122,7 +122,7 @@ export default function ScanScreen() {
         }}
         onBarcodeScanned={onBarcodeScanned}
       />
-      <View style={styles.overlay} pointerEvents="box-none">
+      <View style={styles.overlay}>
         <View style={[styles.overlayTop, { paddingTop: insets.top + theme.spaceSm }]}>
           <Pressable
             style={({ pressed }) => [styles.closeFab, pressed && styles.closeFabPressed]}
@@ -137,7 +137,7 @@ export default function ScanScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.targetStage} pointerEvents="none">
+        <View style={styles.targetStage}>
           <View style={styles.scanTarget} />
         </View>
 
@@ -155,6 +155,7 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "space-between",
+    pointerEvents: "box-none",
   },
   overlayTop: {
     paddingHorizontal: theme.spaceLg,
@@ -168,6 +169,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: theme.spaceLg,
+    pointerEvents: "none",
   },
   scanTarget: {
     width: "100%",
@@ -184,9 +186,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 21,
-    textShadowColor: "rgba(0,0,0,0.75)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    ...Platform.select({
+      web: { textShadow: "0px 1px 4px rgba(0,0,0,0.75)" },
+      default: {
+        textShadowColor: "rgba(0,0,0,0.75)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
+      },
+    }),
   },
   closeFab: {
     width: 48,

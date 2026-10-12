@@ -48,12 +48,12 @@ export const LineChip = memo(function LineChip({ line }: { line: LineType }) {
 const styles = StyleSheet.create({
   wrap: {
     alignSelf: "flex-start",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: theme.radiusFull,
-    backgroundColor: theme.bgSubtle,
-    borderWidth: 1,
-    borderColor: theme.border,
+    backgroundColor: theme.rlcBg,
+    borderWidth: 1.5,
+    borderColor: theme.tileBorder,
   },
   rlc: {
     backgroundColor: theme.rlcBg,
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   txt: {
     fontSize: 12,
     fontWeight: "700",
-    color: theme.textSecondary,
+    color: theme.text,
     letterSpacing: 0.2,
   },
   rlcTxt: { color: theme.rlcText },

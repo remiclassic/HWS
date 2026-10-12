@@ -413,11 +413,16 @@ const styles = StyleSheet.create({
   },
   notesInputFocused: {
     borderColor: theme.accentSecondary,
-    shadowColor: theme.accentSecondary,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 2,
+    ...Platform.select({
+      web: { boxShadow: "0px 0px 8px rgba(59, 155, 255, 0.2)" },
+      default: {
+        shadowColor: theme.accentSecondary,
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 2,
+      },
+    }),
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,

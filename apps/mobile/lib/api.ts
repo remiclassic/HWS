@@ -111,12 +111,22 @@ export async function fetchCars(query: CarsQuery): Promise<CarsListResponse> {
   return carsListResponseSchema.parse({ items, total: count ?? items.length });
 }
 
+/** Field guide exists only for hunts that have a written summary. */
+function toThExplanation(row: {
+  treasure_hunt_type: string;
+  th_summary: string | null;
+  th_markers: string[] | null;
+}): { summary: string; markers: string[] } | null {
+  if (row.treasure_hunt_type === "None" || !row.th_summary) return null;
+  return { summary: row.th_summary, markers: row.th_markers ?? [] };
+}
+
 export async function fetchCar(id: string): Promise<CarDetailDto> {
   const { data, error } = await supabase
     .from("canonical_cars")
     .select(
       `id, casting_name, year, series, line_type, treasure_hunt_type, description,
-       model_number, case_code, sku, last_verified_at,
+       model_number, case_code, sku, last_verified_at, th_summary, th_markers,
        car_images(id, official_image_url, attribution_note),
        car_variations(id, wheels, deco, region, notes),
        car_community_notes(id, body, source_registry:source_id(name, type)),
@@ -129,6 +139,8 @@ export async function fetchCar(id: string): Promise<CarDetailDto> {
     .single();
   if (error || !data) throw new Error(error?.message ?? "Car not found");
   const row = data as unknown as CanonicalCarRow & {
+    th_summary: string | null;
+    th_markers: string[] | null;
     car_variations: { id: string; wheels: string | null; deco: string | null; region: string | null; notes: string | null }[];
     car_community_notes: { id: string; body: string; source_registry: { name: string; type: string } | null }[];
     car_source_attributions: {
@@ -175,7 +187,7 @@ export async function fetchCar(id: string): Promise<CarDetailDto> {
       is_official: n.source_registry?.type === "official",
     })),
     last_verified_at: row.last_verified_at,
-    th_explanation: null,
+    th_explanation: toThExplanation(row),
   };
   return carDetailSchema.parse(detail);
 }
@@ -200,14 +212,19 @@ export async function fetchThExplanation(id: string): Promise<{
   th_explanation: { summary: string; markers: string[] } | null;
   confidence_score: number;
 }> {
-  // TH explanation generation moves to an Edge Function (task #8).
   const { data, error } = await supabase
     .from("canonical_cars")
-    .select("id, treasure_hunt_type")
+    .select("id, treasure_hunt_type, th_summary, th_markers, last_verified_at")
     .eq("id", id)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Car not found");
-  return { car_id: data.id, treasure_hunt_type: data.treasure_hunt_type, th_explanation: null, confidence_score: 0.6 };
+  const th_explanation = toThExplanation(data);
+  return {
+    car_id: data.id,
+    treasure_hunt_type: data.treasure_hunt_type,
+    th_explanation,
+    confidence_score: th_explanation && data.last_verified_at ? 0.9 : 0.6,
+  };
 }
 
 // ---------- Garage ----------

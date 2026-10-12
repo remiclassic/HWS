@@ -87,6 +87,7 @@ function MainStack() {
         <Stack.Screen name="garage-item/[id]/photo" options={{ title: "Take photo" }} />
         <Stack.Screen name="garage-insights" options={{ title: "Garage insights" }} />
         <Stack.Screen name="collector-progress" options={{ title: "Collector progress" }} />
+        <Stack.Screen name="race" options={{ title: "Race" }} />
         <Stack.Screen name="leaderboard" options={{ title: "Leaderboard" }} />
         <Stack.Screen name="collector/[slug]" options={{ title: "Collector" }} />
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
