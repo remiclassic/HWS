@@ -15,7 +15,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -33,6 +33,8 @@ import { ActionSheet, type ActionSheetOption } from "../../components/ui/ActionS
 import { FilterChip } from "../../components/ui/FilterChip";
 import { HuntBadge } from "../../components/ui/HuntBadge";
 import { PrimaryButton } from "../../components/ui/PrimaryButton";
+import { CardSheen, useCardSheen } from "../../components/ui/CardSheen";
+import { CarArt, hasCarArt } from "../../components/ui/CarArt";
 import { RemoteImage } from "../../components/ui/RemoteImage";
 import { useResponsiveLayout } from "../../hooks/useResponsiveLayout";
 import { usePressScale, ReanimatedPressable } from "../../hooks/usePressScale";
@@ -125,7 +127,9 @@ const GarageCard = memo(function GarageCard({ item, index, mode, width, onOpenMe
   const name = car?.casting_name ?? "Car";
   const thumbUri = item.photos?.[0]?.url ?? car?.primary_image_url ?? null;
   const mainPress = usePressScale(true);
+  const sheen = useCardSheen();
   const isGrid = mode === "grid";
+  const hunt = car?.treasure_hunt_type ?? "None";
 
   const image = (
     <View style={isGrid ? styles.gridImageWrap : styles.listImageWrap}>
@@ -134,11 +138,13 @@ const GarageCard = memo(function GarageCard({ item, index, mode, width, onOpenMe
         style={styles.image}
         accessibilityLabel={thumbUri ? `${name} photo` : undefined}
       />
-      {!thumbUri ? (
+      {thumbUri ? null : hasCarArt(car?.casting_name) ? (
+        <CarArt castingName={car?.casting_name} />
+      ) : (
         <View style={styles.imagePlaceholderIcon}>
           <IconGarageTab color={theme.borderStrong} size={isGrid ? 40 : 28} />
         </View>
-      ) : null}
+      )}
       {isGrid && car && car.treasure_hunt_type !== "None" ? (
         <View style={styles.imageBadgeTopLeft}>
           <HuntBadge type={car.treasure_hunt_type} />
@@ -161,9 +167,16 @@ const GarageCard = memo(function GarageCard({ item, index, mode, width, onOpenMe
       style={[styles.card, isGrid ? { width } : styles.cardList]}
     >
       <ReanimatedPressable
-        onPress={() => router.push(`/car/${item.car_id}`)}
+        onPress={() => {
+          const open = () => router.push(`/car/${item.car_id}`);
+          if (sheen.navDelayMs > 0) setTimeout(open, sheen.navDelayMs);
+          else open();
+        }}
         onLongPress={() => onOpenMenu(item)}
-        onPressIn={mainPress.onPressIn}
+        onPressIn={() => {
+          mainPress.onPressIn();
+          sheen.play();
+        }}
         onPressOut={mainPress.onPressOut}
         style={[isGrid ? styles.gridMain : styles.listMain, mainPress.animatedStyle]}
         accessibilityRole="button"
@@ -183,6 +196,10 @@ const GarageCard = memo(function GarageCard({ item, index, mode, width, onOpenMe
             {!isGrid && car ? <HuntBadge type={car.treasure_hunt_type} /> : null}
           </View>
         </View>
+        <CardSheen
+          progress={sheen.progress}
+          variant={hunt === "STH" ? "holo" : hunt === "TH" ? "gold" : "foil"}
+        />
       </ReanimatedPressable>
       <Pressable
         onPress={() => onOpenMenu(item)}
@@ -243,6 +260,7 @@ export default function GarageScreen() {
   const pendingGarage = useGarageQueueDepth();
 
   const [filters, setFilters] = useState<GarageFilters>(DEFAULT_GARAGE_FILTERS);
+  const { status: statusParam } = useLocalSearchParams<{ status?: string }>();
   const [sort, setSort] = useState<GarageSort>("recent");
   const [viewMode, setViewMode] = useState<GarageViewMode>("grid");
   const [menuRow, setMenuRow] = useState<UserCarDto | null>(null);
@@ -251,6 +269,13 @@ export default function GarageScreen() {
   const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const { show: showToast, showError, dismiss: dismissToast } = useToast();
+
+  // The tab bar's Wishlist / Garage entries pick the status filter via `?status=`;
+  // the status chips write the same param so the bar highlights the right entry.
+  useEffect(() => {
+    const next = STATUS_FILTERS.find((f) => f.key === statusParam)?.key;
+    if (next) setFilters((f) => (f.status === next ? f : { ...f, status: next }));
+  }, [statusParam]);
 
   useEffect(() => {
     void AsyncStorage.getItem(VIEW_MODE_STORAGE_KEY)
@@ -373,7 +398,10 @@ export default function GarageScreen() {
     }
   }, [filters.line, stats.lines]);
 
-  const clearFilters = useCallback(() => setFilters(DEFAULT_GARAGE_FILTERS), []);
+  const clearFilters = useCallback(() => {
+    setFilters(DEFAULT_GARAGE_FILTERS);
+    router.setParams({ status: DEFAULT_GARAGE_FILTERS.status });
+  }, []);
 
   const containerWidth =
     (isWide ? Math.min(windowWidth, contentMaxWidth) : windowWidth) - theme.spaceLg * 2;
@@ -459,6 +487,19 @@ export default function GarageScreen() {
           </Pressable>
         </View>
 
+        {stats.byStatus.Owned + stats.byStatus.Duplicate > 0 ? (
+          <Pressable
+            onPress={() => router.push("/race")}
+            style={({ pressed }) => [styles.linkBtn, styles.raceBtn, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Race your cars"
+          >
+            <MaterialCommunityIcons name="flag-checkered" size={20} color={theme.trackOrange} />
+            <Text style={styles.linkBtnTxt}>Race your cars</Text>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.textMuted} />
+          </Pressable>
+        ) : null}
+
         {hasItems ? (
           <>
             <View style={styles.searchRow}>
@@ -514,7 +555,10 @@ export default function GarageScreen() {
                   key={s.key}
                   label={s.label}
                   selected={filters.status === s.key}
-                  onPress={() => setFilters((f) => ({ ...f, status: s.key }))}
+                  onPress={() => {
+                    setFilters((f) => ({ ...f, status: s.key }));
+                    router.setParams({ status: s.key });
+                  }}
                   a11yLabel={`Status filter: ${s.label}`}
                   selectedTint={s.key === "all" ? NEUTRAL_CHIP_TINT : garageStatusChipTint[s.key]}
                 />
@@ -703,6 +747,7 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   linkBtnTxt: { flex: 1, fontSize: 15, fontWeight: "700", color: theme.text },
+  raceBtn: { flex: 0, marginTop: theme.spaceSm, borderColor: theme.trackOrange + "66" },
 
   searchRow: { flexDirection: "row", gap: theme.spaceSm, marginTop: theme.spaceLg },
   searchBox: {

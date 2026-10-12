@@ -36,6 +36,7 @@ import { getIsOnline, useOnline } from "../../lib/network";
 import { OfflineBanner } from "../../components/ui/OfflineBanner";
 import { useGarageQueueDepth } from "../../hooks/useGarageQueueDepth";
 import { garageConditionChipTint, garageStatusChipTint } from "../../lib/garageFormChips";
+import { CarArt, hasCarArt } from "../../components/ui/CarArt";
 import { theme, themedScrollIndicatorProps } from "../../lib/theme";
 
 const STATUSES: UserCarStatus[] = ["Owned", "Want", "Duplicate"];
@@ -115,7 +116,7 @@ const TreasureHuntStrip = memo(function TreasureHuntStrip({
         </View>
       </View>
       {active ? (
-        <View style={styles.thStripCta} pointerEvents="none">
+        <View style={styles.thStripCta}>
           <Text style={styles.thStripCtaLabel}>Field guide</Text>
           <MaterialCommunityIcons name="chevron-right" size={24} color={theme.accentSecondary} />
         </View>
@@ -308,7 +309,11 @@ export default function CarDetailScreen() {
               </ScrollView>
             ) : (
               <View style={[styles.heroImg, styles.heroPlaceholder, { height: heroHeight }]}>
-                <MaterialCommunityIcons name="car-side" size={48} color={theme.textMuted} />
+                {hasCarArt(data.casting_name) ? (
+                  <CarArt castingName={data.casting_name} />
+                ) : (
+                  <MaterialCommunityIcons name="car-side" size={48} color={theme.textMuted} />
+                )}
               </View>
             )}
             <View style={styles.heroGradient} />
@@ -736,6 +741,7 @@ const styles = StyleSheet.create({
     minHeight: theme.touchTargetMin,
     paddingLeft: theme.spaceSm,
     justifyContent: "flex-end",
+    pointerEvents: "none",
   },
   thStripCtaLabel: {
     fontSize: 16,

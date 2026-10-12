@@ -10,28 +10,28 @@
  * The default `theme` object maps these to stable keys (`bg`, `accent`, …) so screens
  * stay unchanged. Use `themeLight` when adding an appearance toggle.
  *
- * Reference (HEX): Primary `#D81E2A`, Field `#1FA6F0`, Track orange `#FF7A1A`, racing yellow
- * `#FFD400` (`accentYellow` / `trackYellow`, pair labels with `textOnYellow`), BG `#071422`,
- * Surface `#132A45`, Text `#F5F8FC` / `#A8BDD4`, Border `#2A4566`.
+ * Reference (HEX): Primary `#E8222C`, Field `#3B9BFF`, Track orange `#FF7A1A`, racing yellow
+ * `#FFD400` (`accentYellow` / `trackYellow`, pair labels with `textOnYellow`), BG `#050D1A`,
+ * Surface `#0C2038`, Text `#F5F8FC` / `#A9C3E6`, Border `#1B4273`.
  * Errors: `danger` + `dangerSurface` / `dangerBorder`. Hero strip: `heroWashGradientColors`.
  */
 import { Platform, type TextStyle } from "react-native";
 
 /** Flame / primary CTA — logo red */
 export const brand = {
-  primary: "#D81E2A",
-  primaryHover: "#E63E48",
-  primaryPressed: "#B81522",
-  primaryDisabled: "rgba(216, 30, 42, 0.38)",
-  primaryMuted: "rgba(216, 30, 42, 0.18)",
+  primary: "#E8222C",
+  primaryHover: "#F2454D",
+  primaryPressed: "#C2141E",
+  primaryDisabled: "rgba(232, 34, 44, 0.38)",
+  primaryMuted: "rgba(232, 34, 44, 0.18)",
 } as const;
 
 /** Sky / chrome UI — headers, links, secondary emphasis */
 export const field = {
-  main: "#1FA6F0",
-  outlineHoverFill: "rgba(31, 166, 240, 0.12)",
-  outlinePressedFill: "rgba(31, 166, 240, 0.22)",
-  focusRing: "#1FA6F0",
+  main: "#3B9BFF",
+  outlineHoverFill: "rgba(59, 155, 255, 0.14)",
+  outlinePressedFill: "rgba(59, 155, 255, 0.24)",
+  focusRing: "#3B9BFF",
 } as const;
 
 /** Track & toy accents */
@@ -46,25 +46,25 @@ export const track = {
 
 /** Navy stack — app backgrounds & panels */
 export const packagingSurface = {
-  background: "#071422",
-  backgroundAlt: "#0C1E32",
-  panel: "#132A45",
-  raised: "#1A3554",
+  background: "#050D1A",
+  backgroundAlt: "#0A1A30",
+  panel: "#0C2038",
+  raised: "#12305A",
 } as const;
 
 export const packagingText = {
   primary: "#F5F8FC",
-  secondary: "#A8BDD4",
+  secondary: "#A9C3E6",
   /** Use at ~60% opacity on controls for disabled */
   disabled: "#5C6F86",
   /** Placeholders / tertiary meta */
-  muted: "#7D93AD",
+  muted: "#7C96BA",
   onYellow: "#0A0F14",
 } as const;
 
 export const packagingBorder = {
-  default: "#2A4566",
-  strong: "#3D5A80",
+  default: "#1B4273",
+  strong: "#2A63B8",
   sticker: "rgba(232, 240, 250, 0.14)",
 } as const;
 
@@ -82,7 +82,7 @@ export const gradients = {
 } as const;
 
 /** Focus ring on dark bg (web): outer bg, then field ring */
-export const focusRingShadow = "0 0 0 2px #071422, 0 0 0 4px #1FA6F0";
+export const focusRingShadow = "0 0 0 2px #050D1A, 0 0 0 4px #3B9BFF";
 
 /** Light “toy aisle” mode — swap root theme when implementing appearance */
 export const themeLight = {
@@ -142,20 +142,32 @@ export const theme = {
   textOnYellow: packagingText.onYellow,
   chromeHighlight: chrome.highlight,
 
-  thBg: "#3D3518",
-  thBorder: "#C9A227",
-  thText: "#F5E6A8",
+  thBg: "#3A2A05",
+  thBorder: "#F2B90F",
+  thText: "#FFD75A",
 
-  sthBg: "#2A2240",
-  sthBorder: "#9B7FD6",
-  sthText: "#E8D9FF",
+  sthBg: "#2B1250",
+  sthBorder: "#A855F7",
+  sthText: "#EBD8FF",
 
-  rlcBg: "#1A2838",
-  rlcBorder: "#4A7AB0",
-  rlcText: "#B8D4F0",
+  rlcBg: "#0A1F3D",
+  rlcBorder: "#3B9BFF",
+  rlcText: "#CFE4FF",
 
-  officialBg: "#14291C",
-  officialText: "#7FD99A",
+  officialBg: "#0B3A1E",
+  officialText: "#6EE7A0",
+
+  /** "Owned" pill — bright green outline on deep green */
+  ownedBg: "#0B3A1E",
+  ownedBorder: "#22C55E",
+  ownedText: "#D6FBE2",
+
+  /** Catalog tile: panel gradient + electric outline */
+  tileGradientColors: ["#0E2A4E", "#081A30"] as const,
+  tileBorder: "#1F5FBF",
+  /** Bottom nav plate sitting on the tire tread */
+  navPlate: "rgba(6, 14, 28, 0.88)",
+  navInactive: "#9CC4FF",
 
   communityBg: "#22252E",
   communityText: "#B8BCC8",
@@ -168,7 +180,7 @@ export const theme = {
   dangerSurface: "rgba(248, 113, 113, 0.12)",
 
   /** Hero wash — top of strip fades into app bg (`theme.bg`) */
-  heroWashGradientColors: ["rgba(43, 180, 255, 0.2)", "rgba(7, 20, 34, 0)"] as const,
+  heroWashGradientColors: ["rgba(59, 155, 255, 0.2)", "rgba(5, 13, 26, 0)"] as const,
 
   radiusSm: 8,
   radiusMd: 14,

@@ -154,3 +154,49 @@ describe("RLS isolation", () => {
     expect(data?.user_gamification).toMatchObject({ total_xp: expect.any(Number) });
   });
 });
+
+describe("waitlist signups (public landing page)", () => {
+  const anon = createClient(API_URL, ANON_KEY, { auth: { persistSession: false } });
+  const email = `Wait-${Date.now()}@hotwheels.test`;
+
+  afterAll(async () => {
+    await admin.from("waitlist_signups").delete().ilike("email", email);
+  });
+
+  it("anon can join, and a repeat (any casing) is a unique violation", async () => {
+    const first = await anon.from("waitlist_signups").insert({ email, platform: "ios", source: "test" });
+    expect(first.error).toBeNull();
+    const again = await anon.from("waitlist_signups").insert({ email: email.toLowerCase() });
+    expect(again.error?.code).toBe("23505");
+  });
+
+  it("anon cannot read the list back", async () => {
+    const { data, error } = await anon.from("waitlist_signups").select("email");
+    expect(error).not.toBeNull();
+    expect(data).toBeNull();
+  });
+
+  it("rejects malformed emails, unknown platforms and client-chosen ids", async () => {
+    const bad = await anon.from("waitlist_signups").insert({ email: "not-an-email" });
+    expect(bad.error?.code).toBe("23514");
+    const plat = await anon.from("waitlist_signups").insert({ email: `p-${email}`, platform: "symbian" });
+    expect(plat.error?.code).toBe("23514");
+    const id = await anon
+      .from("waitlist_signups")
+      .insert({ id: "00000000-0000-0000-0000-00000000dead", email: `i-${email}` });
+    expect(id.error?.code).toBe("42501");
+  });
+
+  it("a signed-in non-admin sees no rows", async () => {
+    const viewer = `viewer-${Date.now()}@hotwheels.test`;
+    const viewerId = await createUser(viewer, password);
+    try {
+      const c = await userClient(viewer, password);
+      const { data, error } = await c.from("waitlist_signups").select("email");
+      expect(error).toBeNull();
+      expect(data).toEqual([]);
+    } finally {
+      await admin.auth.admin.deleteUser(viewerId);
+    }
+  });
+});

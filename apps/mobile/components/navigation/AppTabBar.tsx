@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, type ComponentType } from "react";
+import { memo, useCallback, useContext, type ComponentProps } from "react";
 import {
   Platform,
   Pressable,
@@ -7,11 +7,15 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { BottomTabBarHeightCallbackContext } from "@react-navigation/bottom-tabs";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import { IconBarcodeScan, IconGarageTab, IconSpotterTab } from "../icons/AppIcons";
+import { IconBarcodeScan } from "../icons/AppIcons";
+import { spotterAssets } from "../../lib/spotterAssets";
 import { theme } from "../../lib/theme";
 
 function triggerHaptic() {
@@ -19,12 +23,47 @@ function triggerHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
 
-type TabVisual = { label: string; Icon: ComponentType<{ color: string; size?: number }> };
+type IconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 
-const TAB_VISUALS: Record<string, TabVisual> = {
-  index: { label: "Browse", Icon: IconSpotterTab },
-  garage: { label: "Garage", Icon: IconGarageTab },
-};
+const SCAN_SIZE = 68;
+/** How far the scan button rises above the nav plate. */
+const SCAN_LIFT = 26;
+const TREAD_TOP = 10;
+
+const NavItem = memo(function NavItem({
+  label,
+  icon,
+  selected,
+  color,
+  onPress,
+  role,
+  a11yHint,
+}: {
+  label: string;
+  icon: IconName;
+  selected: boolean;
+  color: string;
+  onPress: () => void;
+  role: "tab" | "button";
+  a11yHint?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole={role}
+      accessibilityState={role === "tab" ? { selected } : undefined}
+      accessibilityLabel={label}
+      accessibilityHint={a11yHint}
+      onPress={onPress}
+      style={styles.item}
+    >
+      <MaterialCommunityIcons name={icon} size={26} color={color} />
+      <Text style={[styles.label, { color }, selected && styles.labelSelected]} numberOfLines={1}>
+        {label}
+      </Text>
+      {selected ? <View style={styles.selectedBar} /> : null}
+    </Pressable>
+  );
+});
 
 export const AppTabBar = memo(function AppTabBar({
   state,
@@ -36,7 +75,8 @@ export const AppTabBar = memo(function AppTabBar({
 
   const handleLayout = useCallback(
     (e: LayoutChangeEvent) => {
-      onHeightChange?.(e.nativeEvent.layout.height);
+      // The scan button overhangs the plate; lists only need to clear the plate itself.
+      onHeightChange?.(e.nativeEvent.layout.height - SCAN_LIFT);
     },
     [onHeightChange],
   );
@@ -44,87 +84,113 @@ export const AppTabBar = memo(function AppTabBar({
   const refRoute = state.routes[0];
   const opts = refRoute ? descriptors[refRoute.key]?.options : undefined;
   const activeTint = (opts?.tabBarActiveTintColor as string) ?? theme.accent;
-  const inactiveTint = (opts?.tabBarInactiveTintColor as string) ?? theme.textMuted;
+  const inactiveTint = (opts?.tabBarInactiveTintColor as string) ?? theme.navInactive;
 
-  const indexRoute = state.routes.find((r) => r.name === "index");
+  const focusedRoute = state.routes[state.index];
   const garageRoute = state.routes.find((r) => r.name === "garage");
+  const garageFocused = focusedRoute?.name === "garage";
+  const wishlistFocused =
+    garageFocused && (focusedRoute?.params as { status?: string } | undefined)?.status === "Want";
 
-  const renderSideTab = (
-    route: (typeof state.routes)[number] | undefined,
-    edge: "leading" | "trailing",
-  ) => {
-    const edgeStyle = edge === "leading" ? styles.sideTabLeading : styles.sideTabTrailing;
-    const labelAlign = edge === "leading" ? ("left" as const) : ("right" as const);
-
-    if (!route) return <View style={[styles.sideTab, edgeStyle]} />;
-
-    const { options } = descriptors[route.key];
-    const routeIndex = state.routes.findIndex((r) => r.key === route.key);
-    const isFocused = state.index === routeIndex;
-    const visual = TAB_VISUALS[route.name] ?? { label: String(route.name), Icon: IconSpotterTab };
-    const color = isFocused ? activeTint : inactiveTint;
-
-    const onPress = () => {
+  const goToTab = useCallback(
+    (name: string, params?: Record<string, string>) => {
       triggerHaptic();
+      const route = state.routes.find((r) => r.name === name);
+      if (!route) return;
       const event = navigation.emit({
         type: "tabPress",
         target: route.key,
         canPreventDefault: true,
       });
-      if (!isFocused && !event.defaultPrevented) {
-        navigation.navigate(route.name, route.params);
+      if (!event.defaultPrevented) {
+        navigation.navigate(name, params);
       }
-    };
+    },
+    [navigation, state.routes],
+  );
 
-    const Icon = visual.Icon;
+  const onBrowse = useCallback(() => goToTab("index"), [goToTab]);
+  // Wishlist is the garage narrowed to "Want"; the garage screen reads `status`.
+  const onWishlist = useCallback(() => goToTab("garage", { status: "Want" }), [goToTab]);
+  const onGarage = useCallback(() => goToTab("garage", { status: "all" }), [goToTab]);
 
-    return (
-      <Pressable
-        accessibilityRole="tab"
-        accessibilityState={{ selected: isFocused }}
-        accessibilityLabel={options.tabBarAccessibilityLabel ?? visual.label}
-        onPress={onPress}
-        style={[styles.sideTab, edgeStyle]}
-      >
-        <Icon color={color} size={24} />
-        <Text style={[styles.label, { color, textAlign: labelAlign }]} numberOfLines={1}>
-          {visual.label}
-        </Text>
-      </Pressable>
-    );
-  };
+  const onCollection = useCallback(() => {
+    triggerHaptic();
+    router.push("/collector-progress");
+  }, []);
 
   const onScanPress = useCallback(() => {
     triggerHaptic();
     router.push("/scan");
   }, []);
 
-  const bottomPad = Math.max(insets.bottom, 10);
+  const tint = (selected: boolean) => (selected ? activeTint : inactiveTint);
+  const browseSelected = focusedRoute?.name === "index";
+  const garageSelected = garageFocused && !wishlistFocused;
 
   return (
-    <View
-      onLayout={handleLayout}
-      style={[styles.outer, { paddingBottom: bottomPad }]}
-      pointerEvents="box-none"
-    >
-      <View style={styles.barWrap} pointerEvents="box-none">
-        <View style={styles.bar}>
-          {renderSideTab(indexRoute, "leading")}
-          <View style={styles.centerSlot} pointerEvents="box-none">
+    <View onLayout={handleLayout} style={styles.outer}>
+      <View style={styles.tread}>
+        <Image source={spotterAssets.tireTread} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <View style={[styles.plate, { marginBottom: Math.max(insets.bottom, 8) }]}>
+          <NavItem
+            label="Browse"
+            icon="binoculars"
+            role="tab"
+            selected={browseSelected}
+            color={tint(browseSelected)}
+            onPress={onBrowse}
+          />
+          <NavItem
+            label="Wishlist"
+            icon={wishlistFocused ? "heart" : "heart-outline"}
+            role="tab"
+            selected={wishlistFocused}
+            color={tint(wishlistFocused)}
+            onPress={onWishlist}
+          />
+          <View style={styles.centerSlot}>
             <Text style={styles.scanLabel}>Scan</Text>
           </View>
-          {renderSideTab(garageRoute, "trailing")}
+          {garageRoute ? (
+            <NavItem
+              label="Garage"
+              icon="garage-variant"
+              role="tab"
+              selected={garageSelected}
+              color={tint(garageSelected)}
+              onPress={onGarage}
+            />
+          ) : (
+            <View style={styles.item} />
+          )}
+          <NavItem
+            label="Collection"
+            icon="trophy-outline"
+            role="button"
+            selected={false}
+            color={inactiveTint}
+            onPress={onCollection}
+            a11yHint="Opens your collector progress"
+          />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Scan barcode"
-          accessibilityHint="Opens the camera to scan a product barcode"
-          onPress={onScanPress}
-          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-        >
-          <IconBarcodeScan color="#FFFFFF" size={26} />
-        </Pressable>
       </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Scan barcode"
+        accessibilityHint="Opens the camera to scan a product barcode"
+        onPress={onScanPress}
+        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+      >
+        <LinearGradient
+          colors={[theme.accentHover, theme.accent, theme.accentPressed]}
+          start={{ x: 0.3, y: 0 }}
+          end={{ x: 0.7, y: 1 }}
+          style={styles.fabFace}
+        >
+          <IconBarcodeScan color="#FFFFFF" size={34} />
+        </LinearGradient>
+      </Pressable>
     </View>
   );
 });
@@ -132,90 +198,95 @@ export const AppTabBar = memo(function AppTabBar({
 const styles = StyleSheet.create({
   outer: {
     backgroundColor: "transparent",
-    paddingTop: theme.spaceSm,
+    paddingTop: SCAN_LIFT,
     zIndex: 20,
     elevation: 12,
+    pointerEvents: "box-none",
   },
-  barWrap: {
-    marginHorizontal: theme.spaceSm,
-    position: "relative",
-    alignItems: "stretch",
+  tread: {
+    paddingTop: TREAD_TOP,
+    backgroundColor: theme.bg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.border,
+    overflow: "hidden",
   },
-  bar: {
-    width: "100%",
+  plate: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: theme.spaceMd,
-    minHeight: 56,
-    paddingHorizontal: theme.spaceMd,
-    backgroundColor: theme.bgElevated,
-    borderRadius: theme.radiusFull,
-    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "stretch",
+    backgroundColor: theme.navPlate,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
     borderColor: theme.border,
-    ...theme.shadow.card,
   },
-  sideTab: {
-    flexGrow: 0,
-    flexShrink: 0,
+  item: {
+    flex: 1,
+    alignItems: "center",
     justifyContent: "flex-end",
+    gap: 2,
     paddingTop: theme.spaceSm,
     paddingBottom: 10,
-    gap: 4,
-    minHeight: theme.touchTargetMin,
-    minWidth: theme.touchTargetMin,
-    paddingHorizontal: theme.spaceXs,
-  },
-  sideTabLeading: {
-    alignItems: "flex-start",
-  },
-  sideTabTrailing: {
-    alignItems: "flex-end",
+    minHeight: 60,
   },
   label: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.1,
+  },
+  labelSelected: {
+    fontWeight: "800",
+  },
+  selectedBar: {
+    position: "absolute",
+    bottom: 0,
+    width: 40,
+    height: 4,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    backgroundColor: theme.accent,
   },
   centerSlot: {
-    width: 64,
-    flexShrink: 0,
+    flex: 1,
     alignItems: "center",
     justifyContent: "flex-end",
     paddingBottom: 10,
-    minHeight: theme.touchTargetMin,
+    pointerEvents: "none",
   },
   scanLabel: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "800",
-    letterSpacing: 0.4,
-    color: theme.textSecondary,
-    textTransform: "uppercase",
+    letterSpacing: 0.1,
+    color: theme.text,
   },
   fab: {
     position: "absolute",
-    left: "50%",
-    top: -20,
-    marginLeft: -28,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    alignSelf: "center",
+    top: 0,
+    width: SCAN_SIZE,
+    height: SCAN_SIZE,
+    borderRadius: SCAN_SIZE / 2,
     backgroundColor: theme.accent,
-    alignItems: "center",
-    justifyContent: "center",
     ...Platform.select({
-      web: { boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.4)" },
+      web: { boxShadow: "0px 4px 14px rgba(232, 34, 44, 0.45)" },
       default: {
-        shadowColor: "#000",
+        shadowColor: theme.accent,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
-        elevation: 6,
+        shadowOpacity: 0.45,
+        shadowRadius: 10,
+        elevation: 8,
       },
     }),
   },
+  fabFace: {
+    width: SCAN_SIZE,
+    height: SCAN_SIZE,
+    borderRadius: SCAN_SIZE / 2,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+  },
   fabPressed: {
-    backgroundColor: theme.accentPressed,
-    transform: [{ scale: 0.96 }],
+    opacity: 0.9,
+    transform: [{ scale: 0.95 }],
   },
 });

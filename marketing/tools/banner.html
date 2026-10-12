@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { overflow: hidden; background: #050D1A; font-family: "Segoe UI", system-ui, sans-serif; color: #F5F8FC; }
+  #b { position: relative; width: 100vw; height: 100vh; overflow: hidden;
+    background: radial-gradient(60vw 90vh at 28% 40%, rgba(59,155,255,.32), transparent 70%), linear-gradient(180deg, #0E2A4E, #081A30 55%, #050D1A); }
+  .track { position: absolute; left: -10vw; right: -10vw; bottom: 9vh; height: 21vh; transform: rotate(-5deg);
+    background: linear-gradient(135deg, #FF8F3A, #E85A00); box-shadow: 0 2vh 6vh rgba(0,0,0,.45); }
+  .track::before { content: ""; position: absolute; left: 0; right: 0; top: 46%; height: 8%;
+    background: repeating-linear-gradient(90deg, rgba(255,255,255,.85) 0 7vw, transparent 7vw 14vw); }
+  .logo { position: absolute; left: 3vw; top: 7vh; height: 34vh; -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 82%, transparent 100%); }
+  h1 { position: absolute; left: 5vw; top: 45vh; width: 60vw; white-space: nowrap; font-weight: 900; font-size: 9.4vh; line-height: 1.04; letter-spacing: -.02em; }
+  h1 em { font-style: normal; color: #FFD400; }
+  .pill { position: absolute; left: 5vw; top: 78vh; padding: 1.6vh 3vh; border-radius: 99vh; background: #E8222C; font-weight: 900; font-size: 3.7vh; box-shadow: 0 1vh 4vh rgba(232,34,44,.5); }
+  .phone { position: absolute; right: 7vw; top: 9vh; width: 46vh; border-radius: 5.4vh; padding: 1vh; transform: rotate(6deg);
+    background: linear-gradient(160deg, #2B3A52, #0A1220 40%, #1B2740); box-shadow: 0 0 0 2px #3A4C6B, 0 4vh 10vh rgba(0,0,0,.65); }
+  .phone img { display: block; width: 100%; border-radius: 4.4vh; }
+  .car { position: absolute; filter: drop-shadow(0 2vh 2vh rgba(0,0,0,.55)); }
+</style>
+<div id="b">
+  <div class="track"></div>
+  <img class="logo" src="assets/spotter-logo.png">
+  <h1>Find it. Collect it.<br><em>Race it.</em></h1>
+  <div class="pill">Coming soon · iOS &amp; Android</div>
+  <div class="phone"><img src="../screenshots/raw/01-browse.png"></div>
+  <img class="car" src="assets/bone-shaker.webp" style="right:31vw;bottom:3vh;height:28vh;transform:rotate(-5deg)">
+</div>
